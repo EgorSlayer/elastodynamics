@@ -10,7 +10,7 @@ dt = 1.3
 Eps_xx= 0.001
 Eps_yy= 0.001
 L = Lx * Ly * Lz
-directory = "/home/heisenberg/Desktop/НИР/ELASTIC/modeling3D"
+directory = "/dir"
 
 c11 = 2
 c12 = 1
