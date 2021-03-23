@@ -6,7 +6,7 @@ Lz = 3
 dx = 2.5
 dy = 2.5
 dz = 2.5
-dt = 0.1
+dt = 1.3
 Eps_xx= 0.001
 Eps_yy= 0.001
 L = Lx * Ly * Lz
@@ -16,8 +16,9 @@ c11 = 2
 c12 = 1
 c44 = 1
 rho = 1
+Alpha = 200
 
-data, consts = init(Lx,Ly,Lz,dx,dy,dz,dt,c11,c12,c44,rho,Eps_xx,Eps_yy)
+data, consts = init(Lx,Ly,Lz,dx,dy,dz,dt,Alpha,c11,c12,c44,rho,Eps_xx,Eps_yy)
 
 time = 10**8
 count = 0
@@ -46,4 +47,4 @@ for t in range(time):
         eps_yz.astype('float32').tofile(directory + '/TXT/' + str(count) +'eps_yz.dat')
         eps_xz.astype('float32').tofile(directory + '/TXT/' + str(count) +'eps_xz.dat')
 
-        print(count, "k", "time =", t * dt *10**-3, "ns; dt =", dt * 10**-12)
+        print(count, "k", "time =", t * dt,"s; dt =", dt)
