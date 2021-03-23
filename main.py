@@ -6,7 +6,22 @@ ctx = cl.create_some_context()
 queue = cl.CommandQueue(ctx)
 
 
-def init_data(L):
+
+def init(Lx,Ly,Lz,dx,dy,dz,dt,c11,c12,c44,rho,Eps_xx,Eps_yy):
+
+    L = Lx * Ly * Lz
+    c11_arr = np.full(L, c11).astype(np.float32)
+    c12_arr = np.full(L, c12).astype(np.float32)
+    c44_arr = np.full(L, c44).astype(np.float32)
+    rho_arr = np.full(L, rho).astype(np.float32)
+    out = np.zeros(12 * L).astype(np.float32)
+
+
+    consts = {'Lx' : np.float32(Lx),'Ly' : np.float32(Ly),'Lz' : np.float32(Lz),'L' : np.float32(L),
+              'dx' : np.float32(dx),'dy' : np.float32(dy),'dz' : np.float32(dz),'dt':np.float32(dt),
+    'c11':c11_arr,'c12':c12_arr,'c44':c44_arr,'rho':rho_arr,
+    'out':out,'Eps_xx':np.float32(Eps_xx),'Eps_yy':np.float32(Eps_yy)}
+
     u1 = np.zeros(L).astype(np.float32)
     u2 = np.zeros(L).astype(np.float32)
     u3 = np.zeros(L).astype(np.float32)
@@ -14,9 +29,9 @@ def init_data(L):
     v2 = np.zeros(L).astype(np.float32)
     v3 = np.zeros(L).astype(np.float32)
 
-    out_el = np.zeros(12 * L).astype(np.float32)
+    data = {"u1":u1, "u2":u2, "u3":u3, 'v1':v1, "v2":v2, 'v3':v3}
 
-    return u1, u2, u3, v1, v2, v3, out_el
+    return  data, consts
 
 
 
@@ -58,6 +73,7 @@ float sigma_ij(float c44, float eps_ij)
 __kernel void my_el(
 __global  float *u1, __global  float *u2, __global  float *u3,
 __global  float *v1, __global  float *v2, __global  float *v3,
+__global float *c11, __global float *c12, __global float *c44, __global float *rho,
 float Lx,  float Ly,  float Lz,  float L,    float Dt,
 float Dx,  float Dy,  float Dz,  float Eps_xx,  float Eps_yy,
 __global float *out)
@@ -93,7 +109,7 @@ __global float *out)
     bool pochti_x_bd = pochti_right_bd || pochti_left_bd;
     bool pochti_y_bd = pochti_back_bd  || pochti_front_bd;
 
-    float dt = 0.5;
+    float dt = Dt ;
     float dx = Dx ;
     float dy = Dy ;
     float dz = Dz ;
@@ -103,10 +119,6 @@ __global float *out)
     float dz2 = native_powr(dz, 2);
 
     float Alpha = 0;
-    float c11 = 2 * native_powr(10, 9);
-    float c12 = 1 * native_powr(10, 9);
-    float c44 = 1 * native_powr(10, 9);
-    float ro =  1 * native_powr(10, 9);
 
     int l=i-1;
     int r=i+1;
@@ -322,27 +334,35 @@ __global float *out)
 
     barrier(CLK_GLOBAL_MEM_FENCE);
 
-    float r_sigma_xx  = sigma_ii(c11,r_eps_xx,c12,r_eps_yy,r_eps_zz);
-    float l_sigma_xx  = sigma_ii(c11,l_eps_xx,c12,l_eps_yy,l_eps_zz);
-    float b_sigma_yy  = sigma_ii(c11,b_eps_yy,c12,b_eps_xx,b_eps_zz);
-    float f_sigma_yy  = sigma_ii(c11,f_eps_yy,c12,f_eps_xx,f_eps_zz);
-    float u_sigma_zz  = sigma_ii(c11,u_eps_zz,c12,u_eps_xx,u_eps_yy);
-    float d_sigma_zz  = sigma_ii(c11,d_eps_zz,c12,d_eps_xx,d_eps_yy);
+    float r_sigma_xx  = sigma_ii(c11[r],r_eps_xx,c12[r],r_eps_yy,r_eps_zz);
+    float l_sigma_xx  = sigma_ii(c11[l],l_eps_xx,c12[l],l_eps_yy,l_eps_zz);
+    float b_sigma_yy  = sigma_ii(c11[b],b_eps_yy,c12[b],b_eps_xx,b_eps_zz);
+    float f_sigma_yy  = sigma_ii(c11[f],f_eps_yy,c12[f],f_eps_xx,f_eps_zz);
+    float u_sigma_zz  = sigma_ii(c11[u],u_eps_zz,c12[u],u_eps_xx,u_eps_yy);
+    float d_sigma_zz  = sigma_ii(c11[d],d_eps_zz,c12[d],d_eps_xx,d_eps_yy);
 
-    float r_sigma_xy = sigma_ij(c44, r_eps_xy);
-    float l_sigma_xy = sigma_ij(c44, l_eps_xy);
-    float b_sigma_xy = sigma_ij(c44, b_eps_xy);
-    float f_sigma_xy = sigma_ij(c44, f_eps_xy);
 
-    float r_sigma_xz = sigma_ij(c44, r_eps_xz);
-    float l_sigma_xz = sigma_ij(c44, l_eps_xz);
-    float u_sigma_xz = sigma_ij(c44, u_eps_xz);
-    float d_sigma_xz = sigma_ij(c44, d_eps_xz);
 
-    float b_sigma_yz = sigma_ij(c44, b_eps_yz);
-    float f_sigma_yz = sigma_ij(c44, f_eps_yz);
-    float d_sigma_yz = sigma_ij(c44, d_eps_yz);
-    float u_sigma_yz = sigma_ij(c44, u_eps_yz);
+    float r_sigma_xy = sigma_ij(c44[r], r_eps_xy);
+    float l_sigma_xy = sigma_ij(c44[l], l_eps_xy);
+    float b_sigma_xy = sigma_ij(c44[b], b_eps_xy);
+    float f_sigma_xy = sigma_ij(c44[f], f_eps_xy);
+
+    float r_sigma_xz = sigma_ij(c44[r], r_eps_xz);
+    float l_sigma_xz = sigma_ij(c44[l], l_eps_xz);
+    float u_sigma_xz = sigma_ij(c44[u], u_eps_xz);
+    float d_sigma_xz = sigma_ij(c44[d], d_eps_xz);
+
+    float b_sigma_yz = sigma_ij(c44[b], b_eps_yz);
+    float f_sigma_yz = sigma_ij(c44[f], f_eps_yz);
+    float d_sigma_yz = sigma_ij(c44[d], d_eps_yz);
+    float u_sigma_yz = sigma_ij(c44[u], u_eps_yz);
+
+    if (down_bd) {
+    d_sigma_zz  = sigma_ii(c11[i],d_eps_zz,c12[i],d_eps_xx,d_eps_yy);
+    d_sigma_xz = sigma_ij(c44[i], d_eps_xz);
+    d_sigma_yz = sigma_ij(c44[i], d_eps_yz);
+    };
 
     float dsigmaxxdx = (r_sigma_xx-l_sigma_xx)/(2*dx);
     float dsigmayydy = (b_sigma_yy-f_sigma_yy)/(2*dy);
@@ -434,9 +454,9 @@ __global float *out)
 
     barrier(CLK_GLOBAL_MEM_FENCE);
 
-    out[i]           = (2*(dsigmaxxdx + dsigmaxydy + dsigmaxzdz)*dt2 + 4*ro*u1[i] + (Alpha*dt - 2*ro)*v1[i])/(Alpha*dt + 2*ro);
-    out[i + len]     = (2*(dsigmaxydx + dsigmayydy + dsigmayzdz)*dt2 + 4*ro*u2[i] + (Alpha*dt - 2*ro)*v2[i])/(Alpha*dt + 2*ro);
-    out[i + 2 * len] = (2*(dsigmaxzdx + dsigmayzdy + dsigmazzdz)*dt2 + 4*ro*u3[i] + (Alpha*dt - 2*ro)*v3[i])/(Alpha*dt + 2*ro);
+    out[i]           = (2*(dsigmaxxdx + dsigmaxydy + dsigmaxzdz)*dt2 + 4*rho[i]*u1[i] + (Alpha*dt - 2*rho[i])*v1[i])/(Alpha*dt + 2*rho[i]);
+    out[i + len]     = (2*(dsigmaxydx + dsigmayydy + dsigmayzdz)*dt2 + 4*rho[i]*u2[i] + (Alpha*dt - 2*rho[i])*v2[i])/(Alpha*dt + 2*rho[i]);
+    out[i + 2 * len] = (2*(dsigmaxzdx + dsigmayzdy + dsigmazzdz)*dt2 + 4*rho[i]*u3[i] + (Alpha*dt - 2*rho[i])*v3[i])/(Alpha*dt + 2*rho[i]);
 
     out[i + 3 * len] = u1[i];
     out[i + 4 * len] = u2[i];
@@ -455,30 +475,37 @@ __global float *out)
 # build the Kernel
 prog = cl.Program(ctx, code_el).build()
 
-def dynamics(u1,u2,u3,v1,v2,v3,Lx,Ly,Lz,L,dx,dy,dz,dt,Eps_xx,Eps_yy):
+def dynamics(data, consts):
     mf = cl.mem_flags
-    u1_buf = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=u1.astype(np.float32))
-    u2_buf = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=u2.astype(np.float32))
-    u3_buf = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=u3.astype(np.float32))
-    v1_buf = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=v1.astype(np.float32))
-    v2_buf = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=v2.astype(np.float32))
-    v3_buf = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=v3.astype(np.float32))
+    u1_buf = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=data['u1'].astype(np.float32))
+    u2_buf = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=data['u2'].astype(np.float32))
+    u3_buf = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=data['u3'].astype(np.float32))
+    v1_buf = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=data['v1'].astype(np.float32))
+    v2_buf = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=data['v2'].astype(np.float32))
+    v3_buf = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=data['v3'].astype(np.float32))
 
-    out_el = np.zeros(12 * L).astype(np.float32)
+    c11_buf = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=consts['c11'].astype(np.float32))
+    c12_buf = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=consts['c12'].astype(np.float32))
+    c44_buf = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=consts['c44'].astype(np.float32))
+    rho_buf = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=consts['rho'].astype(np.float32))
+
+    out_el = consts['out']
     out_el_buf = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=out_el.astype(np.float32))
 
-    launch = prog.my_el(queue, u1.shape, None,
+    launch = prog.my_el(queue, data['u1'].shape, None,
     u1_buf, u2_buf, u3_buf,
     v1_buf, v2_buf, v3_buf,
-    np.float32(Lx), np.float32(Ly), np.float32(Lz), np.float32(L),   np.float32(dt),
-    np.float32(dx), np.float32(dy), np.float32(dz), np.float32(Eps_xx), np.float32(Eps_yy),
+    c11_buf, c12_buf, c44_buf, rho_buf,
+    consts['Lx'], consts['Ly'], consts['Lz'], consts['L'], consts['dt'],
+    consts['dx'], consts['dy'], consts['dz'], consts['Eps_xx'], consts['Eps_yy'],
     out_el_buf)
     launch.wait()
 
-
     cl.enqueue_copy(queue, out_el, out_el_buf)
 
-    return (out_el[0: L], out_el[L: (2 * L)], out_el[(2 * L): (3 * L)],
-            out_el[(3 * L): (4 * L)], out_el[(4 * L): (5 * L)], out_el[(5 * L): (6 * L)],
+    L = int(consts['L'])
+
+    return ({'u1' : out_el[0: L], 'u2' : out_el[L: (2 * L)], 'u3' : out_el[(2 * L): (3 * L)],
+            'v1' : out_el[(3 * L): (4 * L)], 'v2' : out_el[(4 * L): (5 * L)], 'v3' : out_el[(5 * L): (6 * L)]},
             out_el[(6 * L): (7 * L)], out_el[(7 * L): (8 * L)], out_el[(8 * L): (9 * L)],
             out_el[(9 * L): (10 * L)], out_el[(10 * L): (11 * L)], out_el[(11 * L): (12 * L)])
