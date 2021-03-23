@@ -71,11 +71,11 @@ float sigma_ij(float c44, float eps_ij)
 
 
 __kernel void my_el(
-__global  float *u1, __global  float *u2, __global  float *u3,
-__global  float *v1, __global  float *v2, __global  float *v3,
-__global float *c11, __global float *c12, __global float *c44, __global float *rho,
-float Lx,  float Ly,  float Lz,  float L,    float Dt,
-float Dx,  float Dy,  float Dz,  float Eps_xx,  float Eps_yy,
+__global const float *u1, __global const float *u2, __global const float *u3,
+__global const float *v1, __global const float *v2, __global const float *v3,
+__global const float *c11, __global const float *c12, __global const float *c44, __global const float *rho,
+const float Lx, const float Ly, const float Lz, const float L, const float Dt,
+const float Dx, const float Dy, const float Dz, const float Eps_xx,  const float Eps_yy,
 __global float *out)
 
 {   int i = get_global_id(0);
