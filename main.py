@@ -7,7 +7,7 @@ queue = cl.CommandQueue(ctx)
 
 
 
-def init(Lx,Ly,Lz,dx,dy,dz,dt,c11,c12,c44,rho,Eps_xx,Eps_yy):
+def init(Lx,Ly,Lz,dx,dy,dz,dt,Alpha,c11,c12,c44,rho,Eps_xx,Eps_yy):
 
     L = Lx * Ly * Lz
     c11_arr = np.full(L, c11).astype(np.float32)
@@ -20,16 +20,11 @@ def init(Lx,Ly,Lz,dx,dy,dz,dt,c11,c12,c44,rho,Eps_xx,Eps_yy):
     consts = {'Lx' : np.float32(Lx),'Ly' : np.float32(Ly),'Lz' : np.float32(Lz),'L' : np.float32(L),
               'dx' : np.float32(dx),'dy' : np.float32(dy),'dz' : np.float32(dz),'dt':np.float32(dt),
     'c11':c11_arr,'c12':c12_arr,'c44':c44_arr,'rho':rho_arr,
-    'out':out,'Eps_xx':np.float32(Eps_xx),'Eps_yy':np.float32(Eps_yy)}
+    'out':out,'Eps_xx':np.float32(Eps_xx),'Eps_yy':np.float32(Eps_yy),'Alpha':np.float32(Alpha)}
 
-    u1 = np.zeros(L).astype(np.float32)
-    u2 = np.zeros(L).astype(np.float32)
-    u3 = np.zeros(L).astype(np.float32)
-    v1 = np.zeros(L).astype(np.float32)
-    v2 = np.zeros(L).astype(np.float32)
-    v3 = np.zeros(L).astype(np.float32)
+    u = np.zeros(L).astype(np.float32)
 
-    data = {"u1":u1, "u2":u2, "u3":u3, 'v1':v1, "v2":v2, 'v3':v3}
+    data = {"u1":u, "u2":u, "u3":u, 'v1':u, "v2":u, 'v3':u}
 
     return  data, consts
 
@@ -74,7 +69,7 @@ __kernel void my_el(
 __global const float *u1, __global const float *u2, __global const float *u3,
 __global const float *v1, __global const float *v2, __global const float *v3,
 __global const float *c11, __global const float *c12, __global const float *c44, __global const float *rho,
-const float Lx, const float Ly, const float Lz, const float L, const float Dt,
+const float Lx, const float Ly, const float Lz, const float L, const float Dt, const float Alpha,
 const float Dx, const float Dy, const float Dz, const float Eps_xx,  const float Eps_yy,
 __global float *out)
 
@@ -117,8 +112,6 @@ __global float *out)
     float dx2 = native_powr(dx, 2);
     float dy2 = native_powr(dy, 2);
     float dz2 = native_powr(dz, 2);
-
-    float Alpha = 0;
 
     int l=i-1;
     int r=i+1;
@@ -275,7 +268,7 @@ __global float *out)
     d_eps_xx=Eps_xx;
     d_eps_yy=Eps_yy;
 
-    d_eps_zz=eps_ii(u3[i],0,   dz);
+    d_eps_zz=eps_ii(u3[i], 0,  dz);
     r_eps_zz=eps_ii(u3[ur],0,2*dz);
     l_eps_zz=eps_ii(u3[ul],0,2*dz);
     b_eps_zz=eps_ii(u3[ub],0,2*dz);
@@ -284,15 +277,15 @@ __global float *out)
     ddzdx=0;
     ddzdy=0;
 
-    dxdz =didj(u1[u], u1[i], dz);
+    dxdz =didj(u1[u], u1[i],                 dz);
     rdxdz=didj(u1[ur],Eps_xx * dx * (x+1), 2*dz);
     ldxdz=didj(u1[ul],Eps_xx * dx * (x-1), 2*dz);
     ddxdz=didj(u1[i], Eps_xx * dx * x,       dz);
 
-    dydz =didj(u2[u], u2[i], dz);
-    bdydz=didj(u2[ub],Eps_yy * dy *(y+1), 2*dz);
-    fdydz=didj(u2[uf],Eps_yy * dy *(y-1), 2*dz);
-    ddydz=didj(u2[i], Eps_yy * dy * y,      dz);
+    dydz =didj(u2[u], u2[i],                 dz);
+    bdydz=didj(u2[ub],Eps_yy * dy * (y+1), 2*dz);
+    fdydz=didj(u2[uf],Eps_yy * dy * (y-1), 2*dz);
+    ddydz=didj(u2[i], Eps_yy * dy *  y,      dz);
     };
 
     if (up_bd) {
@@ -341,8 +334,6 @@ __global float *out)
     float u_sigma_zz  = sigma_ii(c11[u],u_eps_zz,c12[u],u_eps_xx,u_eps_yy);
     float d_sigma_zz  = sigma_ii(c11[d],d_eps_zz,c12[d],d_eps_xx,d_eps_yy);
 
-
-
     float r_sigma_xy = sigma_ij(c44[r], r_eps_xy);
     float l_sigma_xy = sigma_ij(c44[l], l_eps_xy);
     float b_sigma_xy = sigma_ij(c44[b], b_eps_xy);
@@ -359,7 +350,7 @@ __global float *out)
     float u_sigma_yz = sigma_ij(c44[u], u_eps_yz);
 
     if (down_bd) {
-    d_sigma_zz  = sigma_ii(c11[i],d_eps_zz,c12[i],d_eps_xx,d_eps_yy);
+    d_sigma_zz = sigma_ii(c11[i], d_eps_zz, c12[i],d_eps_xx,d_eps_yy);
     d_sigma_xz = sigma_ij(c44[i], d_eps_xz);
     d_sigma_yz = sigma_ij(c44[i], d_eps_yz);
     };
@@ -496,7 +487,7 @@ def dynamics(data, consts):
     u1_buf, u2_buf, u3_buf,
     v1_buf, v2_buf, v3_buf,
     c11_buf, c12_buf, c44_buf, rho_buf,
-    consts['Lx'], consts['Ly'], consts['Lz'], consts['L'], consts['dt'],
+    consts['Lx'], consts['Ly'], consts['Lz'], consts['L'], consts['dt'], consts['Alpha'],
     consts['dx'], consts['dy'], consts['dz'], consts['Eps_xx'], consts['Eps_yy'],
     out_el_buf)
     launch.wait()
