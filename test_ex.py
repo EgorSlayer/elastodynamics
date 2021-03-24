@@ -1,50 +1,50 @@
-from elastodynamics import dynamics, init
+from elastodynamics import dynamics, init_data,  plot_xy_pl, plot_1D_z
 
 Lx = 100
 Ly = 100
 Lz = 3
-dx = 2.5
-dy = 2.5
-dz = 2.5
-dt = 1.3
+dx = 2.5 #nm
+dy = 2.5 #nm
+dz = 2.5 #nm
+dt = 0.0005 #ns
 Eps_xx= 0.001
 Eps_yy= 0.001
 L = Lx * Ly * Lz
-directory = "/dir"
+directory = "/home/heisenberg/Desktop/НИР/ELASTIC/modeling3D"
 
-c11 = 2
-c12 = 1
-c44 = 1
-rho = 1
-Alpha = 200
+c11 = 20 * 10**9
+c12 = 1 * 10**9
+c44 = 1 * 10**9
+rho = 4000
+Alpha = 2 * 10**14
 
-data, consts = init(Lx,Ly,Lz,dx,dy,dz,dt,Alpha,c11,c12,c44,rho,Eps_xx,Eps_yy)
+data, consts = init_data(Lx,Ly,Lz,dx,dy,dz,dt,Alpha,c11,c12,c44,rho,Eps_xx,Eps_yy)
 
 time = 10**8
 count = 0
 for t in range(time):
 
 
-
     loc_out = dynamics(data, consts)
 
     data = loc_out[0]
-
-    eps_xx = loc_out[1]
-    eps_yy = loc_out[2]
-    eps_zz = loc_out[3]
-    eps_xy = loc_out[4]
-    eps_yz = loc_out[5]
-    eps_xz = loc_out[6]
+    eps = loc_out[1]
 
     if t % 1000 == 0:
         count += 1
 
-        eps_xx.astype('float32').tofile(directory + '/TXT/' + str(count) +'eps_xx.dat')
-        eps_yy.astype('float32').tofile(directory + '/TXT/' + str(count) +'eps_yy.dat')
-        eps_zz.astype('float32').tofile(directory + '/TXT/' + str(count) +'eps_zz.dat')
-        eps_xy.astype('float32').tofile(directory + '/TXT/' + str(count) +'eps_xy.dat')
-        eps_yz.astype('float32').tofile(directory + '/TXT/' + str(count) +'eps_yz.dat')
-        eps_xz.astype('float32').tofile(directory + '/TXT/' + str(count) +'eps_xz.dat')
+        '''
+        eps['eps_xx'].astype('float32').tofile(directory + '/TXT/' + str(count) +'eps_xx.dat')
+        eps['eps_yy'].astype('float32').tofile(directory + '/TXT/' + str(count) +'eps_yy.dat')
+        eps['eps_zz'].astype('float32').tofile(directory + '/TXT/' + str(count) +'eps_zz.dat')
+        eps['eps_xy'].astype('float32').tofile(directory + '/TXT/' + str(count) +'eps_xy.dat')
+        eps['eps_yz'].astype('float32').tofile(directory + '/TXT/' + str(count) +'eps_yz.dat')
+        eps['eps_xz'].astype('float32').tofile(directory + '/TXT/' + str(count) +'eps_xz.dat')
+        '''
 
-        print(count, "k", "time =", t * dt,"s; dt =", dt)
+        for layer in range(Lz):
+            plot_xy_pl(eps['eps_zz'], layer, directory, count, consts)
+        plot_1D_z(eps,directory,count, consts)
+
+
+        print(count, "k", "time =", t * dt, 'ns')
