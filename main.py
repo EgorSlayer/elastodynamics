@@ -1,13 +1,14 @@
 import pyopencl as cl
 import numpy as np
-
+import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
 
 ctx = cl.create_some_context()
 queue = cl.CommandQueue(ctx)
 
 
 
-def init(Lx,Ly,Lz,dx,dy,dz,dt,Alpha,c11,c12,c44,rho,Eps_xx,Eps_yy):
+def init_data(Lx,Ly,Lz,dx,dy,dz,dt,Alpha,c11,c12,c44,rho,Eps_xx,Eps_yy):
 
     L = Lx * Ly * Lz
     c11_arr = np.full(L, c11).astype(np.float32)
@@ -104,10 +105,10 @@ __global float *out)
     bool pochti_x_bd = pochti_right_bd || pochti_left_bd;
     bool pochti_y_bd = pochti_back_bd  || pochti_front_bd;
 
-    float dt = Dt ;
-    float dx = Dx ;
-    float dy = Dy ;
-    float dz = Dz ;
+    float dt = Dt * native_powr(10, -9);
+    float dx = Dx * native_powr(10, -9);
+    float dy = Dy * native_powr(10, -9);
+    float dz = Dz * native_powr(10, -9);
     float dt2 = native_powr(dt, 2);
     float dx2 = native_powr(dx, 2);
     float dy2 = native_powr(dy, 2);
@@ -481,7 +482,7 @@ def dynamics(data, consts):
     rho_buf = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=consts['rho'].astype(np.float32))
 
     out_el = consts['out']
-    out_el_buf = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=out_el.astype(np.float32))
+    out_el_buf = cl.Buffer(ctx, mf.WRITE_ONLY | mf.COPY_HOST_PTR, hostbuf=out_el.astype(np.float32))
 
     launch = prog.my_el(queue, data['u1'].shape, None,
     u1_buf, u2_buf, u3_buf,
@@ -498,5 +499,79 @@ def dynamics(data, consts):
 
     return ({'u1' : out_el[0: L], 'u2' : out_el[L: (2 * L)], 'u3' : out_el[(2 * L): (3 * L)],
             'v1' : out_el[(3 * L): (4 * L)], 'v2' : out_el[(4 * L): (5 * L)], 'v3' : out_el[(5 * L): (6 * L)]},
-            out_el[(6 * L): (7 * L)], out_el[(7 * L): (8 * L)], out_el[(8 * L): (9 * L)],
-            out_el[(9 * L): (10 * L)], out_el[(10 * L): (11 * L)], out_el[(11 * L): (12 * L)])
+
+            {'eps_xx':out_el[(6 * L): (7 * L)],'eps_yy': out_el[(7 * L): (8 * L)],'eps_zz': out_el[(8 * L): (9 * L)],
+            'eps_xy':out_el[(9 * L): (10 * L)],'eps_yz': out_el[(10 * L): (11 * L)],'eps_xz': out_el[(11 * L): (12 * L)]})
+
+
+
+def plot_xy_pl(a, layer, dir, count, consts):
+
+    Lx = int(consts['Lx'])
+    Ly = int(consts['Ly'])
+    Lz = int(consts['Lz'])
+
+    dx = consts['dx']
+    dy = consts['dy']
+
+    Xpos, Ypos = np.meshgrid(np.arange(0, dx * Lx, dx), np.arange(0, dy * Ly, dy))
+
+    pl = np.reshape(a, (Lz, Ly, Lx))[layer]
+    fig, ax = plt.subplots()
+    plt.contourf(Xpos, Ypos, pl, cmap=plt.get_cmap('plasma'),
+                 levels=MaxNLocator(nbins=100).tick_values(pl.min(), pl.max()))
+    plt.colorbar(label=r"uxx", format='%.20f')
+    ax.set_aspect('equal', 'box')
+    plt.ticklabel_format(useOffset=False)
+    plt.tick_params(labelleft=False)
+    fig.set_size_inches(15, 15)
+    plt.savefig(dir + "/film/"
+                + "u" + str(count)  +" layer = " + str(layer) + ".png", dpi=100)
+    plt.close()
+
+
+def plot_1D_z(data,dir,count, consts):
+
+    Lx = int(consts['Lx'])
+    Ly = int(consts['Ly'])
+    Lz = int(consts['Lz'])
+
+    dz = int(consts['dz'])
+
+    a1 = np.reshape(data['eps_xx'], (Lz, Ly, Lx))
+    a2 = np.reshape(data['eps_yy'], (Lz, Ly, Lx))
+    a3 = np.reshape(data['eps_zz'], (Lz, Ly, Lx))
+
+
+    pl1 = []
+    pl2 = []
+    pl3 = []
+
+    x = int(Lx/2)
+    y = int(Ly/2)
+    for z in range(Lz):
+        pl1.append(a1[z][y][x]*10**2)
+        pl2.append(a2[z][y][x]*10**2)
+        pl3.append(a3[z][y][x]*10**2)
+
+
+    pl1 = np.array(pl1)
+    pl2 = np.array(pl2)
+    pl3 = np.array(pl3)
+
+
+
+    fig, ax = plt.subplots()
+    t = np.arange(0, dz * Lz, dz)
+    ax.plot(t, pl1,"b", label="$\epsilon_{xx}$")
+    ax.plot(t, pl2,"r--", label="$\epsilon_{yy}$")
+    ax.plot(t, pl3, "g", label="$\epsilon_{zz}$")
+    ax.legend(loc='lower left')
+    ax.set(xlabel='z coordinate (nm)', ylabel='Mechanical strains (%)')
+    ax.grid()
+
+    plt.savefig(dir+"/film/z_strains" + str(count) + ".png", dpi=100)
+    plt.close()
+
+def save_data(data, dir):
+    np.save(data, dir+ '/TXT/')
