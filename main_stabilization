@@ -638,15 +638,15 @@ __global float *out)
     pochtiz = u3[d];
 
     if (pochti_right_bd) {
-    d2zdx2 = (ll3-2*l3+U3)/dx2;
-    d2xdx2 = (ll1-2*l1+U1)/dx2;
-    d2ydx2 = (ll2-2*l2+U2)/dx2;
-    d2xdxdy= (b1-bl1-f1+fl1)/(2*dx*dy);
-    d2ydxdy= (b2-bl2-f2+fl2)/(2*dx*dy);
+    d2zdx2 = d2idj2(u3[ll],u3[l],u3[i],dx2);
+    d2xdx2 = d2idj2(u1[ll],u1[l],u1[i],dx2);
+    d2ydx2 = d2idj2(u2[ll],u2[l],u2[i],dx2);
+    d2xdxdy=d2idjdk(u1[b],u1[bl],u1[f],u1[fl],dx,2*dy);
+    d2ydxdy=d2idjdk(u2[b],u2[bl],u2[f],u2[fl],dx,2*dy);
 
-    dxdx=(U1-l1)/dx;
-    dydx=(U2-l2)/dx;
-    dzdx=(U3-l3)/dx;
+    dxdx=didj(u1[i],u1[l],dx);
+    dydx=didj(u2[i],u2[l],dx);
+    dzdx=didj(u3[i],u3[l],dx);
     };
 
     if (pochti_left_bd) {
@@ -726,34 +726,6 @@ __global float *out)
     };
     };
 
-    if (rgr && lgr) {
-    d2xdx2 = 0;
-    d2ydx2 = 0;
-    d2zdx2 = 0;
-    d2xdxdz= 0;
-    d2zdxdz= 0;
-    d2xdxdy= 0;
-    d2ydxdy= 0;
-
-    dxdx=0;
-    dydx=0;
-    dzdx=0;
-    };
-
-    if (bgr && fgr) {
-    d2xdy2 = 0;
-    d2ydy2 = 0;
-    d2zdy2 = 0;
-    d2ydydz= 0;
-    d2zdydz= 0;
-    d2xdxdy= 0;
-    d2ydxdy= 0;
-
-    dxdy=0;
-    dydy=0;
-    dzdy=0;
-    };
-
     if (x_bd) {
     out[i] = (2*dt2*(c12[i]*(d2ydxdy + d2zdxdz) + c44[i]*(d2xdy2 + d2xdz2 + d2ydxdy + d2zdxdz)
     + (2*c11[i]*(pochtix + Beta*dx*(dydy + dzdz)*sgn - u1[i]))/dx2
@@ -785,10 +757,6 @@ __global float *out)
     };
 
     };
-
-
-
-
 
 
     if ( !x_bd && !y_bd && !up_bd) ){
