@@ -217,7 +217,6 @@ __global float *out)
     eps_yy=b_eps_yy;
     };
 
-
     if (right_bd) {
     eps_xx=l_eps_xx;
     };
@@ -226,61 +225,60 @@ __global float *out)
     eps_xx=r_eps_xx;
     };
 
-
-    if (pochti_ugr && pochti_rgr) {
-    rdzdz=(r3-dr3)/dz;
-    rdxdz=(r1-dr1)/dz;
-    udxdx=(u1-ul1)/dx;
-    udzdx=(u3-ul3)/dx;
+    if (pochti_up_bd && pochti_right_bd) {
+    r_eps_zz=didj(u3[r],u3[dr],dz);
+    rdxdz   =didj(u1[r],u1[dr],dz);
+    u_eps_xx=didj(u1[u],u1[ul],dx);
+    udzdx   =didj(u3[u],u3[ul],dx);
     };
 
-    if (pochti_ugr && pochti_lgr) {
-    ldzdz=(l3-dl3)/dz;
-    ldxdz=(l1-dl1)/dz;
-    udxdx=(ur1-u1)/dx;
-    udzdx=(ur3-u3)/dx;
+    if (pochti_up_bd && pochti_left_bd) {
+    ldzdz=didj(u3[l],u3[dl],dz);
+    ldxdz=didj(u1[l],u1[dl],dz);
+    udxdx=didj(u1[ur],u1[u],dx);
+    udzdx=didj(u3[ur],u3[u],dx);
     };
 
-    if (pochti_ugr && pochti_bgr) {
-    bdzdz=(b3-db3)/dz;
-    bdydz=(b2-db2)/dz;
-    udydy=(u2-uf2)/dy;
-    udzdy=(u3-uf3)/dy;
+    if (pochti_up_bd && pochti_back_bd) {
+    bdzdz=didj(u3[b],u3[db],dz);
+    bdydz=didj(u2[b],u2[db],dz);
+    udydy=didj(u2[u],u2[uf],dy);
+    udzdy=didj(u1[u],u1[uf],dy);
     };
 
-    if (pochti_ugr && pochti_fgr) {
-    fdzdz=(f3-df3)/dz;
-    fdydz=(f2-df2)/dz;
-    udydy=(ub2-u2)/dy;
-    udzdy=(ub3-u3)/dy;
+    if (pochti_up_bd && pochti_front_bd) {
+    fdzdz=didj(u3[f],u3[df],dz);
+    fdydz=didj(u2[f],u2[df],dz);
+    udydy=didj(u2[ub],u2[u],dy);
+    udzdy=didj(u3[ub],u3[u],dy);
     };
 
-    if (pochti_bgr && pochti_rgr) {
-    rdydy=(r2-fr2)/dy;
-    rdxdy=(r1-fr1)/dy;
-    bdxdx=(b1-bl1)/dx;
-    bdydx=(b2-bl2)/dx;
+    if (pochti_back_bd && pochti_right_bd) {
+    rdydy=didj(u2[r],u2[fr],dy);
+    rdxdy=didj(u1[r],u1[fr],dy);
+    bdxdx=didj(u1[b],u1[bl],dx);
+    bdydx=didj(u2[b],u2[bl],dx);
     };
 
-    if (pochti_bgr && pochti_lgr) {
-    ldydy=(l2-fl2)/dy;
-    ldxdy=(l1-fl1)/dy;
-    bdxdx=(br1-b1)/dx;
-    bdydx=(br2-b2)/dx;
+    if (pochti_back_bd && pochti_left_bd) {
+    ldydy=didj(u2[l],u2[fl],dy);
+    ldxdy=didj(u1[l],u1[fl],dy);
+    bdxdx=didj(u1[br],u1[b],dx);
+    bdydx=didj(u2[br],u2[b],dx);
     };
 
-    if (pochti_fgr && pochti_rgr) {
-    rdydy=(br2-r2)/dy;
-    rdxdy=(br1-r1)/dy;
-    fdxdx=(f1-fl1)/dx;
-    fdydx=(f2-fl2)/dx;
+    if (pochti_front_bd && pochti_right_bd) {
+    rdydy=didj(u2[br],u2[r],dy);
+    rdxdy=didj(u1[br],u1[r],dy);
+    fdxdx=didj(u1[f],u1[fl],dx);
+    fdydx=didj(u2[f],u2[fl],dx);
     };
 
-    if (pochti_fgr && pochti_lgr) {
-    ldydy=(bl2-l2)/dy;
-    ldxdy=(bl1-l1)/dy;
-    fdxdx=(fr1-f1)/dx;
-    fdydx=(fr2-f2)/dx;
+    if (pochti_front_bd && pochti_left_bd) {
+    ldydy=didj(u2[bl],u2[l],dy);
+    ldxdy=didj(u1[bl],u1[l],dy);
+    fdxdx=didj(u1[fr],u1[f],dx);
+    fdydx=didj(u2[fr],u2[f],dx);
     };
 
     if (down_bd) {
@@ -784,9 +782,8 @@ __global float *out)
     };
 
 
-
-
-    float u1f,u2f,u3f;
+    float u1f,u2f,u3f,pochtix,pochtiy,pochtiz;
+    float Beta = c12[i]/(c11[i]+c12[i]);
 
 
     if ( !x_bd && !y_bd && !up_bd) ){
