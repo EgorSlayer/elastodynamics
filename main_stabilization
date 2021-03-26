@@ -34,7 +34,6 @@ def init_data(Lx,Ly,Lz,dx,dy,dz,dt,Alpha,c11,c12,c44,rho,Eps_xx,Eps_yy):
 # OpenCL elastic
 
 code_el = """
-
 float d2idj2(float pos,float here,float neg,float di2)
     {
     float eps = native_divide(pos+neg-2*here,di2);
@@ -132,6 +131,12 @@ __global float *out)
     int b=i+lx;
     int u=i+pl;
     int d=i-pl;
+    int ll=i-2;
+    int rr=i+2;
+    int ff=i-2*lx;
+    int bb=i+2*lx;
+    int uu=i+2*pl;
+    int dd=i-2*pl;
     int fl=i-lx-1;
     int fr=i-lx+1;
     int br=i+lx+1;
@@ -225,64 +230,11 @@ __global float *out)
     eps_xx=r_eps_xx;
     };
 
-    if (pochti_up_bd && pochti_right_bd) {
-    r_eps_zz=didj(u3[r],u3[dr],dz);
-    rdxdz   =didj(u1[r],u1[dr],dz);
-    u_eps_xx=didj(u1[u],u1[ul],dx);
-    udzdx   =didj(u3[u],u3[ul],dx);
-    };
-
-    if (pochti_up_bd && pochti_left_bd) {
-    ldzdz=didj(u3[l],u3[dl],dz);
-    ldxdz=didj(u1[l],u1[dl],dz);
-    udxdx=didj(u1[ur],u1[u],dx);
-    udzdx=didj(u3[ur],u3[u],dx);
-    };
-
-    if (pochti_up_bd && pochti_back_bd) {
-    bdzdz=didj(u3[b],u3[db],dz);
-    bdydz=didj(u2[b],u2[db],dz);
-    udydy=didj(u2[u],u2[uf],dy);
-    udzdy=didj(u1[u],u1[uf],dy);
-    };
-
-    if (pochti_up_bd && pochti_front_bd) {
-    fdzdz=didj(u3[f],u3[df],dz);
-    fdydz=didj(u2[f],u2[df],dz);
-    udydy=didj(u2[ub],u2[u],dy);
-    udzdy=didj(u3[ub],u3[u],dy);
-    };
-
-    if (pochti_back_bd && pochti_right_bd) {
-    rdydy=didj(u2[r],u2[fr],dy);
-    rdxdy=didj(u1[r],u1[fr],dy);
-    bdxdx=didj(u1[b],u1[bl],dx);
-    bdydx=didj(u2[b],u2[bl],dx);
-    };
-
-    if (pochti_back_bd && pochti_left_bd) {
-    ldydy=didj(u2[l],u2[fl],dy);
-    ldxdy=didj(u1[l],u1[fl],dy);
-    bdxdx=didj(u1[br],u1[b],dx);
-    bdydx=didj(u2[br],u2[b],dx);
-    };
-
-    if (pochti_front_bd && pochti_right_bd) {
-    rdydy=didj(u2[br],u2[r],dy);
-    rdxdy=didj(u1[br],u1[r],dy);
-    fdxdx=didj(u1[f],u1[fl],dx);
-    fdydx=didj(u2[f],u2[fl],dx);
-    };
-
-    if (pochti_front_bd && pochti_left_bd) {
-    ldydy=didj(u2[bl],u2[l],dy);
-    ldxdy=didj(u1[bl],u1[l],dy);
-    fdxdx=didj(u1[fr],u1[f],dx);
-    fdydx=didj(u2[fr],u2[f],dx);
+    if (up_bd) {
+    eps_zz  =eps_ii(u3[i],u3[d], dz);
     };
 
     if (down_bd) {
-
     eps_zz=eps_ii(u3[u],u3[i],dz);
 
     d_eps_xx=Eps_xx;
@@ -308,8 +260,62 @@ __global float *out)
     ddydz=didj(u2[i], Eps_yy * dy *  y,      dz);
     };
 
-    if (up_bd) {
-    eps_zz  =eps_ii(u3[i],u3[d], dz);
+
+
+    if (pochti_up_bd && pochti_right_bd) {
+    r_eps_zz=didj(u3[r],u3[dr],dz);
+    rdxdz   =didj(u1[r],u1[dr],dz);
+    u_eps_xx=didj(u1[u],u1[ul],dx);
+    udzdx   =didj(u3[u],u3[ul],dx);
+    };
+
+    if (pochti_up_bd && pochti_left_bd) {
+    l_eps_zz=didj(u3[l],u3[dl],dz);
+    ldxdz   =didj(u1[l],u1[dl],dz);
+    u_eps_xx=didj(u1[ur],u1[u],dx);
+    udzdx   =didj(u3[ur],u3[u],dx);
+    };
+
+    if (pochti_up_bd && pochti_back_bd) {
+    b_eps_zz=didj(u3[b],u3[db],dz);
+    bdydz   =didj(u2[b],u2[db],dz);
+    u_eps_yy=didj(u2[u],u2[uf],dy);
+    udzdy   =didj(u1[u],u1[uf],dy);
+    };
+
+    if (pochti_up_bd && pochti_front_bd) {
+    f_eps_zz=didj(u3[f],u3[df],dz);
+    fdydz   =didj(u2[f],u2[df],dz);
+    u_eps_yy=didj(u2[ub],u2[u],dy);
+    udzdy   =didj(u3[ub],u3[u],dy);
+    };
+
+    if (pochti_back_bd && pochti_right_bd) {
+    r_eps_yy=didj(u2[r],u2[fr],dy);
+    rdxdy   =didj(u1[r],u1[fr],dy);
+    b_eps_xx=didj(u1[b],u1[bl],dx);
+    bdydx   =didj(u2[b],u2[bl],dx);
+    };
+
+    if (pochti_back_bd && pochti_left_bd) {
+    l_eps_yy=didj(u2[l],u2[fl],dy);
+    ldxdy   =didj(u1[l],u1[fl],dy);
+    b_eps_xx=didj(u1[br],u1[b],dx);
+    bdydx   =didj(u2[br],u2[b],dx);
+    };
+
+    if (pochti_front_bd && pochti_right_bd) {
+    r_eps_yy=didj(u2[br],u2[r],dy);
+    rdxdy   =didj(u1[br],u1[r],dy);
+    f_eps_xx=didj(u1[f],u1[fl],dx);
+    fdydx   =didj(u2[f],u2[fl],dx);
+    };
+
+    if (pochti_front_bd && pochti_left_bd) {
+    l_eps_yy=didj(u2[bl],u2[l],dy);
+    ldxdy   =didj(u1[bl],u1[l],dy);
+    f_eps_xx=didj(u1[fr],u1[f],dx);
+    fdydx   =didj(u2[fr],u2[f],dx);
     };
 
     barrier(CLK_GLOBAL_MEM_FENCE);
@@ -452,6 +458,10 @@ __global float *out)
 
     barrier(CLK_GLOBAL_MEM_FENCE);
 
+    float dxdx=eps_xx;
+    float dydy=eps_yy;
+    float dzdz=eps_zz;
+
 
     float d2xdx2 = d2idj2(u1[r],u1[i],u1[l],dx2);
     float d2xdy2 = d2idj2(u1[b],u1[i],u1[f],dy2);
@@ -470,6 +480,9 @@ __global float *out)
     float d2ydxdy= d2idjdk(u2[br],u2[bl],u2[fr],u2[fl],2*dx,2*dy);
 
     int sgn = -1;
+
+    float u1f,u2f,u3f,pochtix,pochtiy,pochtiz;
+    float Beta = c12[i]/(c11[i]+c12[i]);
 
     if (x_bd) {
     if (pochti_up_bd) {
@@ -518,7 +531,7 @@ __global float *out)
     d2zdydz= d2idjdk(u3[b],u3[i],u3[db],u3[d],dy,dz);
     };
 
-    if (rgr) {
+    if (right_bd) {
     d2ydxdy=d2idjdk(u2[b],u2[bl],u2[f],u2[fl],dx,2*dy);
     d2xdxdy=d2idjdk(u1[b],u1[bl],u1[f],u1[fl],dx,2*dy);
     d2zdxdz=d2idjdk(u3[u],u3[ul],u3[d],u3[dl],dx,2*dz);
@@ -623,7 +636,7 @@ __global float *out)
     d2zdxdz= d2idjdk(u3[r],u3[i],u3[dr],u3[d],dx,dz);
     };
 
-    if (bgr) {
+    if (back_bd) {
     d2zdydz=d2idjdk(u3[u],u3[uf],u3[d],u3[df],dy,2*dz);
     d2ydydz=d2idjdk(u2[u],u2[uf],u2[d],u2[df],dy,2*dz);
     d2xdxdy=d2idjdk(u1[r],u1[l],u1[fr],u1[fl],2*dx,dy);
@@ -782,11 +795,7 @@ __global float *out)
     };
 
 
-    float u1f,u2f,u3f,pochtix,pochtiy,pochtiz;
-    float Beta = c12[i]/(c11[i]+c12[i]);
-
-
-    if ( !x_bd && !y_bd && !up_bd) ){
+    if ( !x_bd && !y_bd && !up_bd ){
 
     u1f = (2*(dsigmaxxdx + dsigmaxydy + dsigmaxzdz)*dt2 + 4*rho[i]*u1[i] + (Alpha*dt - 2*rho[i])*v1[i])/(Alpha*dt + 2*rho[i]);
     u2f = (2*(dsigmaxydx + dsigmayydy + dsigmayzdz)*dt2 + 4*rho[i]*u2[i] + (Alpha*dt - 2*rho[i])*v2[i])/(Alpha*dt + 2*rho[i]);
@@ -806,8 +815,8 @@ __global float *out)
     };
 
     if (y_bd) {
-    u1f  = (2*(c11[i]*d2xdx2 + c44[i]*d2xdz2 + (c12 + c44)*d2zdxdz - Beta*c12[i]*(d2xdx2
-    + d2zdxdz))*dt2 + 4*rho[i]*U1 + (Alpha*dt - 2*rho[i])*v1[i])/(Alpha*dt + 2*rho[i]);
+    u1f  = (2*(c11[i]*d2xdx2 + c44[i]*d2xdz2 + (c12[i] + c44[i])*d2zdxdz - Beta*c12[i]*(d2xdx2
+    + d2zdxdz))*dt2 + 4*rho[i]*u1[i] + (Alpha*dt - 2*rho[i])*v1[i])/(Alpha*dt + 2*rho[i]);
     u2f = (2*dt2*(c12[i]*(d2xdxdy + d2zdydz) + c44[i]*(d2xdxdy + d2ydx2 + d2ydz2 + d2zdydz)
     + (2*c11[i]*(pochtiy + Beta*dy*(dxdx + dzdz)*sgn - u2[i]))/dy2
     + (4*rho[i]*u2[i] + Alpha*dt*v2[i] - 2*rho[i]*v2[i])/(2.*dt2)))/(Alpha*dt + 2*rho[i]);
@@ -816,8 +825,8 @@ __global float *out)
     };
 
     if (up_bd) {
-    u1f  = (2*(c11[i]*d2xdx2 + c44[i]*d2xdy2 + (c12 + c44)*d2ydxdy - Beta*c12[i]*(d2xdx2
-    + d2ydxdy))*dt2 + 4*rho[i]*U1 + (Alpha*dt - 2*rho[i])*v1[i])/(Alpha*dt + 2*rho[i]);
+    u1f  = (2*(c11[i]*d2xdx2 + c44[i]*d2xdy2 + (c12[i] + c44[i])*d2ydxdy - Beta*c12[i]*(d2xdx2
+    + d2ydxdy))*dt2 + 4*rho[i]*u1[i] + (Alpha*dt - 2*rho[i])*v1[i])/(Alpha*dt + 2*rho[i]);
     u2f = (2*(c44[i]*(d2xdxdy + d2ydx2) + c11[i]*d2ydy2 + c12[i]*(d2xdxdy - Beta*d2xdxdy
     - Beta*d2ydy2))*dt2 + 4*rho[i]*u2[i] + (Alpha*dt - 2*rho[i])*v2[i])/(Alpha*dt + 2*rho[i]);
     u3f = (2*dt2*(c12[i]*(d2xdxdz + d2ydydz) + c44[i]*(d2xdxdz + d2ydydz + d2zdx2 + d2zdy2)
@@ -825,12 +834,15 @@ __global float *out)
     + (4*rho[i]*u3[i] + Alpha*dt*v3[i] - 2*rho[i]*v3[i])/(2.*dt2)))/(Alpha*dt + 2*rho[i]);
     };
 
+    u1f = 0;
+    u2f = 0;
+    u3f = 0;
+
     };
 
     out[i]           = u1f;
     out[i + 2 * len] = u2f;
     out[i + 3 * len] = u3f;
-
 
     out[i + 3 * len] = u1[i];
     out[i + 4 * len] = u2[i];
