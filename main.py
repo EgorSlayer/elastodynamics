@@ -593,5 +593,10 @@ def plot_1D_z(data,dir,count, consts):
     plt.savefig(dir+"/film/z_strains" + str(count) + ".png", dpi=100)
     plt.close()
 
-def save_data(data, dir):
-    np.save(data, dir + '/TXT/')
+def save_data(eps, dir, count):
+    eps['eps_xx'].astype('float32').tofile(dir + '/TXT/' + str(count) +'eps_xx.dat')
+    eps['eps_yy'].astype('float32').tofile(dir + '/TXT/' + str(count) +'eps_yy.dat')
+    eps['eps_zz'].astype('float32').tofile(dir + '/TXT/' + str(count) +'eps_zz.dat')
+    eps['eps_xy'].astype('float32').tofile(dir + '/TXT/' + str(count) +'eps_xy.dat')
+    eps['eps_yz'].astype('float32').tofile(dir + '/TXT/' + str(count) +'eps_yz.dat')
+    eps['eps_xz'].astype('float32').tofile(dir + '/TXT/' + str(count) +'eps_xz.dat')
