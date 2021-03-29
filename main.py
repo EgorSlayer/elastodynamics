@@ -77,7 +77,6 @@ __global float *out)
 {   int i = get_global_id(0);
     int len = L;
 
-    if (i <= len-1) {
     int lx = Lx;
     int ly = Ly;
     int lz = Lz;
@@ -105,10 +104,10 @@ __global float *out)
     bool pochti_x_bd = pochti_right_bd || pochti_left_bd;
     bool pochti_y_bd = pochti_back_bd  || pochti_front_bd;
 
-    float dt = Dt * native_powr(10, -9);
-    float dx = Dx * native_powr(10, -9);
-    float dy = Dy * native_powr(10, -9);
-    float dz = Dz * native_powr(10, -9);
+    float dt = Dt;
+    float dx = Dx;
+    float dy = Dy;
+    float dz = Dz;
     float dt2 = native_powr(dt, 2);
     float dx2 = native_powr(dx, 2);
     float dy2 = native_powr(dy, 2);
@@ -214,7 +213,7 @@ __global float *out)
     };
 
     if (front_bd) {
-    eps_yy=eps_ii(u2[b],u2[i],dy);
+    eps_yy=b_eps_yy;
 
     r_eps_yy=eps_ii(u2[br],u2[r],dy);
     l_eps_yy=eps_ii(u2[bl],u2[l],dy);
@@ -231,7 +230,7 @@ __global float *out)
 
 
     if (right_bd) {
-    eps_xx=eps_ii(u1[i],u1[l],dx);
+    eps_xx=l_eps_xx;
 
     b_eps_xx=eps_ii(u1[b],u1[bl],dx);
     f_eps_xx=eps_ii(u1[f],u1[fl],dx);
@@ -247,7 +246,7 @@ __global float *out)
     };
 
     if (left_bd) {
-    eps_xx=eps_ii(u1[r],u1[i],dx);
+    eps_xx=r_eps_xx;
 
     b_eps_xx=eps_ii(u1[br],u1[b],dx);
     f_eps_xx=eps_ii(u1[fr],u1[f],dx);
@@ -351,7 +350,7 @@ __global float *out)
     float u_sigma_yz = sigma_ij(c44[u], u_eps_yz);
 
     if (down_bd) {
-    d_sigma_zz = sigma_ii(c11[i], d_eps_zz, c12[i],d_eps_xx,d_eps_yy);
+    d_sigma_zz = sigma_ii(c11[i], d_eps_zz, c12[i], d_eps_xx, d_eps_yy);
     d_sigma_xz = sigma_ij(c44[i], d_eps_xz);
     d_sigma_yz = sigma_ij(c44[i], d_eps_yz);
     };
@@ -444,6 +443,27 @@ __global float *out)
     dsigmaxzdx = (r_sigma_xz)/(2*dx);
     };
 
+    if (up_bd && x_bd) {
+    dsigmaxydy = 0;
+    dsigmaxzdz = 0;
+    dsigmaxzdx = 0;
+    dsigmayzdy = 0;
+    };
+
+    if (up_bd && y_bd) {
+    dsigmaxzdx = 0;
+    dsigmayzdy = 0;
+    dsigmaxydx = 0;
+    dsigmayzdz = 0;
+    };
+
+    if (x_bd && y_bd) {
+    dsigmaxydx = 0;
+    dsigmayzdz = 0;
+    dsigmaxydy = 0;
+    dsigmaxzdz = 0;
+    };
+
     barrier(CLK_GLOBAL_MEM_FENCE);
 
     out[i]           = (2*(dsigmaxxdx + dsigmaxydy + dsigmaxzdz)*dt2 + 4*rho[i]*u1[i] + (Alpha*dt - 2*rho[i])*v1[i])/(Alpha*dt + 2*rho[i]);
@@ -460,7 +480,7 @@ __global float *out)
     out[i + 9 * len]  = eps_xy;
     out[i + 10 * len] = eps_yz;
     out[i + 11 * len] = eps_xz;
-};
+
 };
 """
 
@@ -574,4 +594,4 @@ def plot_1D_z(data,dir,count, consts):
     plt.close()
 
 def save_data(data, dir):
-    np.save(data, dir+ '/TXT/')
+    np.save(data, dir + '/TXT/')
