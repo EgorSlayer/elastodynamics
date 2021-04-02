@@ -29,11 +29,68 @@ def init_data(Lx,Ly,Lz,dx,dy,dz,dt,Alpha,c11,c12,c44,rho,Eps_xx,Eps_yy):
 
     return  data, consts
 
+coord_syst = '''
+int len = L;
 
+int lx = Lx;
+int ly = Ly;
+int lz = Lz;
+int pl = lx * ly;
+int x = i % lx;
+int z = i / pl;
+int y = (i - z * pl)/ lx;
+
+bool left_bd  = x == 0;
+bool right_bd = x == lx-1;
+bool front_bd = y == 0;
+bool back_bd  = y == ly-1;
+bool down_bd  = z == 0;
+bool up_bd    = z == lz-1;
+
+bool x_bd = right_bd || left_bd;
+bool y_bd = back_bd  || front_bd;
+bool z_bd = up_bd    || down_bd;
+
+bool pochti_up_bd    = z == lz-2;
+bool pochti_right_bd = x == lx-2;
+bool pochti_left_bd  = x == 1;
+bool pochti_back_bd  = y == ly-2;
+bool pochti_front_bd = y == 1;
+bool pochti_x_bd = pochti_right_bd || pochti_left_bd;
+bool pochti_y_bd = pochti_back_bd  || pochti_front_bd;
+
+float dt = Dt;
+float dx = Dx;
+float dy = Dy;
+float dz = Dz;
+float dt2 = native_powr(dt, 2);
+float dx2 = native_powr(dx, 2);
+float dy2 = native_powr(dy, 2);
+float dz2 = native_powr(dz, 2);
+
+int l=i-1;
+int r=i+1;
+int f=i-lx;
+int b=i+lx;
+int u=i+pl;
+int d=i-pl;
+int fl=i-lx-1;
+int fr=i-lx+1;
+int br=i+lx+1;
+int bl=i+lx-1;
+int dl=i-pl-1;
+int dr=i-pl+1;
+int ul=i+pl-1;
+int ur=i+pl+1;
+int db=i-pl+lx;
+int df=i-pl-lx;
+int uf=i+pl-lx;
+int ub=i+pl+lx;
+'''
 
 # OpenCL elastic
 
-code_el = """
+code_el = '''
 
 float eps_ii(float pos,float neg,float di)
     {
@@ -66,288 +123,131 @@ float sigma_ij(float c44, float eps_ij)
     }
 
 
-__kernel void my_el(
+
+__kernel void get_strains(
 __global const float *u1, __global const float *u2, __global const float *u3,
-__global const float *v1, __global const float *v2, __global const float *v3,
-__global const float *c11, __global const float *c12, __global const float *c44, __global const float *rho,
-const float Lx, const float Ly, const float Lz, const float L, const float Dt, const float Alpha,
-const float Dx, const float Dy, const float Dz, const float Eps_xx,  const float Eps_yy,
-__global float *out)
+__global const float *c11, __global const float *c12, __global const float *c44
+__global float *sigmaxx,__global float *sigmayy,__global float *sigmazz,
+__global float *sigmaxy,__global float *sigmayz,__global float *sigmaxz
+)
 
 {   int i = get_global_id(0);
-    int len = L;
-
-    int lx = Lx;
-    int ly = Ly;
-    int lz = Lz;
-    int pl = lx * ly;
-    int x = i % lx;
-    int z = i / pl;
-    int y = (i - z * pl)/ lx;
-
-    bool left_bd  = x == 0;
-    bool right_bd = x == lx-1;
-    bool front_bd = y == 0;
-    bool back_bd  = y == ly-1;
-    bool down_bd  = z == 0;
-    bool up_bd    = z == lz-1;
-
-    bool x_bd = right_bd || left_bd;
-    bool y_bd = back_bd  || front_bd;
-    bool z_bd = up_bd    || down_bd;
-
-    bool pochti_up_bd    = z == lz-2;
-    bool pochti_right_bd = x == lx-2;
-    bool pochti_left_bd  = x == 1;
-    bool pochti_back_bd  = y == ly-2;
-    bool pochti_front_bd = y == 1;
-    bool pochti_x_bd = pochti_right_bd || pochti_left_bd;
-    bool pochti_y_bd = pochti_back_bd  || pochti_front_bd;
-
-    float dt = Dt;
-    float dx = Dx;
-    float dy = Dy;
-    float dz = Dz;
-    float dt2 = native_powr(dt, 2);
-    float dx2 = native_powr(dx, 2);
-    float dy2 = native_powr(dy, 2);
-    float dz2 = native_powr(dz, 2);
-
-    int l=i-1;
-    int r=i+1;
-    int f=i-lx;
-    int b=i+lx;
-    int u=i+pl;
-    int d=i-pl;
-    int fl=i-lx-1;
-    int fr=i-lx+1;
-    int br=i+lx+1;
-    int bl=i+lx-1;
-    int dl=i-pl-1;
-    int dr=i-pl+1;
-    int ul=i+pl-1;
-    int ur=i+pl+1;
-    int db=i-pl+lx;
-    int df=i-pl-lx;
-    int uf=i+pl-lx;
-    int ub=i+pl+lx;
-
-    barrier(CLK_GLOBAL_MEM_FENCE);
+    ''' + coord_syst + '''
 
     float eps_xx=eps_ii(u1[r],u1[l],2*dx);
     float eps_yy=eps_ii(u2[b],u2[f],2*dy);
     float eps_zz=eps_ii(u3[u],u3[d],2*dz);
 
-    float r_eps_xx=eps_ii(u1[r], u1[i],dx);
-    float l_eps_xx=eps_ii(u1[i], u1[l],dx);
-    float b_eps_xx=eps_ii(u1[br],u1[bl],2*dx);
-    float f_eps_xx=eps_ii(u1[fr],u1[fl],2*dx);
-    float u_eps_xx=eps_ii(u1[ur],u1[ul],2*dx);
-    float d_eps_xx=eps_ii(u1[dr],u1[dl],2*dx);
-
-    float b_eps_yy=eps_ii(u2[b], u2[i],dy);
-    float f_eps_yy=eps_ii(u2[i], u2[f],dy);
-    float r_eps_yy=eps_ii(u2[br],u2[fr],2*dy);
-    float l_eps_yy=eps_ii(u2[bl],u2[fl],2*dy);
-    float u_eps_yy=eps_ii(u2[ub],u2[uf],2*dy);
-    float d_eps_yy=eps_ii(u2[db],u2[df],2*dy);
-
-    float u_eps_zz=eps_ii(u3[u], u3[i],dz);
-    float d_eps_zz=eps_ii(u3[i], u3[d],dz);
-    float r_eps_zz=eps_ii(u3[ur],u3[dr],2*dz);
-    float l_eps_zz=eps_ii(u3[ul],u3[dl],2*dz);
-    float b_eps_zz=eps_ii(u3[ub],u3[db],2*dz);
-    float f_eps_zz=eps_ii(u3[uf],u3[df],2*dz);
-
     float dzdx =didj(u3[r], u3[l] ,2*dx);
-    float rdzdx=didj(u3[r], u3[i]   ,dx);
-    float ldzdx=didj(u3[i], u3[l]   ,dx);
-    float udzdx=didj(u3[ur],u3[ul],2*dx);
-    float ddzdx=didj(u3[dr],u3[dl],2*dx);
-
-    float dydx =didj(u2[r], u2[l],2*dx);
-    float rdydx=didj(u2[r], u2[i],dx);
-    float ldydx=didj(u2[i], u2[l],dx);
-    float bdydx=didj(u2[br],u2[bl],2*dx);
-    float fdydx=didj(u2[fr],u2[fl],2*dx);
-
-    float dxdy =didj(u1[b], u1[f],2*dy);
-    float rdxdy=didj(u1[br],u1[fr],2*dy);
-    float ldxdy=didj(u1[bl],u1[fl],2*dy);
-    float bdxdy=didj(u1[b], u1[i],dy);
-    float fdxdy=didj(u1[i], u1[f],dy);
-
+    float dydx =didj(u2[r], u2[l], 2*dx);
+    float dxdy =didj(u1[b], u1[f], 2*dy);
     float dzdy =didj(u3[b], u3[f], 2*dy);
-    float bdzdy=didj(u3[b], u3[i],   dy);
-    float fdzdy=didj(u3[i], u3[f],   dy);
-    float ddzdy=didj(u3[db],u3[df],2*dy);
-    float udzdy=didj(u3[ub],u3[uf],2*dy);
-
     float dxdz =didj(u1[u], u1[d], 2*dz);
-    float rdxdz=didj(u1[ur],u1[dr],2*dz);
-    float ldxdz=didj(u1[ul],u1[dl],2*dz);
-    float udxdz=didj(u1[u], u1[i],   dz);
-    float ddxdz=didj(u1[i], u1[d]   ,dz);
-
     float dydz =didj(u2[u], u2[d], 2*dz);
-    float bdydz=didj(u2[ub],u2[db],2*dz);
-    float fdydz=didj(u2[uf],u2[df],2*dz);
-    float udydz=didj(u2[u], u2[i],   dz);
-    float ddydz=didj(u2[i], u2[d],   dz);
+
 
 
     if (back_bd) {
     eps_yy=f_eps_yy;
-
-    r_eps_yy=eps_ii(u2[r],u2[fr],dy);
-    l_eps_yy=eps_ii(u2[l],u2[fl],dy);
-    u_eps_yy=eps_ii(u2[u],u2[uf],dy);
-    d_eps_yy=eps_ii(u2[d],u2[df],dy);
-
     dxdy =didj(u1[i],u1[f] ,dy);
-    rdxdy=didj(u1[r],u1[fr],dy);
-    ldxdy=didj(u1[l],u1[fl],dy);
     dzdy =didj(u3[i],u3[f] ,dy);
-    ddzdy=didj(u3[d],u3[df],dy);
-    udzdy=didj(u3[u],u3[uf],dy);
     };
 
     if (front_bd) {
     eps_yy=b_eps_yy;
-
-    r_eps_yy=eps_ii(u2[br],u2[r],dy);
-    l_eps_yy=eps_ii(u2[bl],u2[l],dy);
-    u_eps_yy=eps_ii(u2[ub],u2[u],dy);
-    d_eps_yy=eps_ii(u2[db],u2[d],dy);
-
     dxdy =didj(u1[b], u1[i],dy);
-    rdxdy=didj(u1[br],u1[r],dy);
-    ldxdy=didj(u1[bl],u1[l],dy);
     dzdy =didj(u3[b], u3[i],dy);
-    ddzdy=didj(u3[db],u3[d],dy);
-    udzdy=didj(u3[ub],u3[u],dy);
     };
 
 
     if (right_bd) {
     eps_xx=l_eps_xx;
-
-    b_eps_xx=eps_ii(u1[b],u1[bl],dx);
-    f_eps_xx=eps_ii(u1[f],u1[fl],dx);
-    u_eps_xx=eps_ii(u1[u],u1[ul],dx);
-    d_eps_xx=eps_ii(u1[d],u1[dl],dx);
-
     dzdx =didj(u3[i],u3[l], dx);
-    udzdx=didj(u3[u],u3[ul],dx);
-    ddzdx=didj(u3[d],u3[dl],dx);
     dydx =didj(u2[i],u2[l], dx);
-    bdydx=didj(u2[b],u2[bl],dx);
-    fdydx=didj(u2[f],u2[fl],dx);
     };
 
     if (left_bd) {
     eps_xx=r_eps_xx;
-
-    b_eps_xx=eps_ii(u1[br],u1[b],dx);
-    f_eps_xx=eps_ii(u1[fr],u1[f],dx);
-    u_eps_xx=eps_ii(u1[ur],u1[u],dx);
-    d_eps_xx=eps_ii(u1[dr],u1[d],dx);
-
     dzdx =didj(u3[r], u3[i],dx);
-    udzdx=didj(u3[ur],u3[u],dx);
-    ddzdx=didj(u3[dr],u3[d],dx);
     dydx =didj(u2[r], u2[i],dx);
-    bdydx=didj(u2[br],u2[b],dx);
-    fdydx=didj(u2[fr],u2[f],dx);
     };
 
     if (down_bd) {
 
     eps_zz=eps_ii(u3[u],u3[i],dz);
-
-    d_eps_xx=Eps_xx;
-    d_eps_yy=Eps_yy;
-
-    d_eps_zz=eps_ii(u3[i], 0,  dz);
-    r_eps_zz=eps_ii(u3[ur],0,2*dz);
-    l_eps_zz=eps_ii(u3[ul],0,2*dz);
-    b_eps_zz=eps_ii(u3[ub],0,2*dz);
-    f_eps_zz=eps_ii(u3[uf],0,2*dz);
-
-    ddzdx=0;
-    ddzdy=0;
-
-    dxdz =didj(u1[u], u1[i],                 dz);
-    rdxdz=didj(u1[ur],Eps_xx * dx * (x+1), 2*dz);
-    ldxdz=didj(u1[ul],Eps_xx * dx * (x-1), 2*dz);
-    ddxdz=didj(u1[i], Eps_xx * dx * x,       dz);
-
-    dydz =didj(u2[u], u2[i],                 dz);
-    bdydz=didj(u2[ub],Eps_yy * dy * (y+1), 2*dz);
-    fdydz=didj(u2[uf],Eps_yy * dy * (y-1), 2*dz);
-    ddydz=didj(u2[i], Eps_yy * dy *  y,      dz);
+    dxdz =didj(u1[u], u1[i],  dz);
+    dydz =didj(u2[u], u2[i],  dz);
     };
 
     if (up_bd) {
     eps_zz  =eps_ii(u3[i],u3[d], dz);
-
-    r_eps_zz=eps_ii(u3[r],u3[dr],dz);
-    l_eps_zz=eps_ii(u3[l],u3[dl],dz);
-    b_eps_zz=eps_ii(u3[b],u3[db],dz);
-    f_eps_zz=eps_ii(u3[f],u3[df],dz);
-
-    dxdz =didj(u1[i],u1[d], dz);
-    rdxdz=didj(u1[r],u1[dr],dz);
-    ldxdz=didj(u1[l],u1[dl],dz);
-    dydz =didj(u2[i],u2[d], dz);
-    bdydz=didj(u2[b],u2[db],dz);
-    fdydz=didj(u2[f],u2[df],dz);
+    dxdz =didj(u1[i],u1[d],      dz);
+    dydz =didj(u2[i],u2[d],      dz);
     };
 
     barrier(CLK_GLOBAL_MEM_FENCE);
 
     float   eps_xz=eps_ij( dxdz, dzdx);
-    float u_eps_xz=eps_ij(udxdz,udzdx);
-    float d_eps_xz=eps_ij(ddxdz,ddzdx);
-    float r_eps_xz=eps_ij(rdxdz,rdzdx);
-    float l_eps_xz=eps_ij(ldxdz,ldzdx);
-
     float   eps_xy=eps_ij( dxdy, dydx);
-    float r_eps_xy=eps_ij(rdxdy,rdydx);
-    float l_eps_xy=eps_ij(ldxdy,ldydx);
-    float b_eps_xy=eps_ij(bdxdy,bdydx);
-    float f_eps_xy=eps_ij(fdxdy,fdydx);
-
     float   eps_yz=eps_ij( dydz, dzdy);
-    float b_eps_yz=eps_ij(bdydz,bdzdy);
-    float f_eps_yz=eps_ij(fdydz,fdzdy);
-    float u_eps_yz=eps_ij(udydz,udzdy);
-    float d_eps_yz=eps_ij(ddydz,ddzdy);
+
+    if (x_bd) {
+    sigmaxx[i] = 0;
+    }
+    else {
+    sigmaxx[i] = sigma_ii(c11[i], eps_xx, c12[i], eps_yy, eps_zz);
+    };
+
+    if (y_bd) {
+    sigmayy[i] = 0;
+    }
+    else {
+    sigmayy[i] = sigma_ii(c11[i], eps_yy, c12[i], eps_xx, eps_zz);
+    };
+
+    if (up_bd) {
+    sigmazz[i] = 0;
+    }
+    else {
+    sigmazz[i] = sigma_ii(c11[i], eps_zz, c12[i], eps_yy, eps_xx);
+    };
+
+    if (x_bd || y_db) {
+    sigmaxy[i] = 0;
+    }
+    else{
+    sigmaxy[i] = sigma_ij(c44[i], eps_xy);
+    };
+
+    if (x_bd || up_bd) {
+    sigmaxz[i] = 0;
+    }
+    else {
+    sigmaxz[i] = sigma_ij(c44[i], eps_xz);
+    };
+
+    if (y_bd || up_bd) {
+    sigmayz[i] = 0;
+    }
+    else {
+    sigmayz[i] = sigma_ij(c44[i], eps_yz);
+    };
+
+};
 
 
-    barrier(CLK_GLOBAL_MEM_FENCE);
+__kernel void my_el(
+__global const float *u1, __global const float *u2, __global const float *u3,
+__global const float *v1, __global const float *v2, __global const float *v3,
+__global const float *sigmaxx,__global const float *sigmayy,__global const float *sigmazz,
+__global const float *sigmaxy,__global const float *sigmayz,__global const float *sigmaxz
+__global const float *rho,
+const float Lx, const float Ly, const float Lz, const float L, const float Dt, const float Alpha,
+const float Dx, const float Dy, const float Dz, const float Eps_xx,  const float Eps_yy,
+__global float *out)
 
-    float r_sigma_xx  = sigma_ii(c11[r],r_eps_xx,c12[r],r_eps_yy,r_eps_zz);
-    float l_sigma_xx  = sigma_ii(c11[l],l_eps_xx,c12[l],l_eps_yy,l_eps_zz);
-    float b_sigma_yy  = sigma_ii(c11[b],b_eps_yy,c12[b],b_eps_xx,b_eps_zz);
-    float f_sigma_yy  = sigma_ii(c11[f],f_eps_yy,c12[f],f_eps_xx,f_eps_zz);
-    float u_sigma_zz  = sigma_ii(c11[u],u_eps_zz,c12[u],u_eps_xx,u_eps_yy);
-    float d_sigma_zz  = sigma_ii(c11[d],d_eps_zz,c12[d],d_eps_xx,d_eps_yy);
-
-    float r_sigma_xy = sigma_ij(c44[r], r_eps_xy);
-    float l_sigma_xy = sigma_ij(c44[l], l_eps_xy);
-    float b_sigma_xy = sigma_ij(c44[b], b_eps_xy);
-    float f_sigma_xy = sigma_ij(c44[f], f_eps_xy);
-
-    float r_sigma_xz = sigma_ij(c44[r], r_eps_xz);
-    float l_sigma_xz = sigma_ij(c44[l], l_eps_xz);
-    float u_sigma_xz = sigma_ij(c44[u], u_eps_xz);
-    float d_sigma_xz = sigma_ij(c44[d], d_eps_xz);
-
-    float b_sigma_yz = sigma_ij(c44[b], b_eps_yz);
-    float f_sigma_yz = sigma_ij(c44[f], f_eps_yz);
-    float d_sigma_yz = sigma_ij(c44[d], d_eps_yz);
-    float u_sigma_yz = sigma_ij(c44[u], u_eps_yz);
+{   int i = get_global_id(0);
+    ''' + coord_syst + '''
 
     if (down_bd) {
     d_sigma_zz = sigma_ii(c11[i], d_eps_zz, c12[i], d_eps_xx, d_eps_yy);
@@ -355,26 +255,23 @@ __global float *out)
     d_sigma_yz = sigma_ij(c44[i], d_eps_yz);
     };
 
-    float dsigmaxxdx = (r_sigma_xx-l_sigma_xx)/(2*dx);
-    float dsigmayydy = (b_sigma_yy-f_sigma_yy)/(2*dy);
-    float dsigmazzdz = (u_sigma_zz-d_sigma_zz)/(2*dz);
+    float dsigmaxxdx = (sigma_xx[r]-sigma_xx[l])/(2*dx);
+    float dsigmayydy = (sigma_yy[b]-sigma_yy[f])/(2*dy);
+    float dsigmazzdz = (sigma_zz[u]-sigma_zz[d])/(2*dz);
 
-    float dsigmaxydx = (r_sigma_xy-l_sigma_xy)/(2*dx);
-    float dsigmaxydy = (b_sigma_xy-f_sigma_xy)/(2*dy);
+    float dsigmaxydx = (sigma_xy[r]-sigma_xy[l])/(2*dx);
+    float dsigmaxydy = (sigma_xy[b]-sigma_xy[f])/(2*dy);
 
-    float dsigmaxzdx = (r_sigma_xz-l_sigma_xz)/(2*dx);
-    float dsigmaxzdz = (u_sigma_xz-d_sigma_xz)/(2*dz);
+    float dsigmaxzdx = (sigma_xz[r]-sigma_xz[l])/(2*dx);
+    float dsigmaxzdz = (sigma_xz[u]-sigma_xz[d])/(2*dz);
 
-    float dsigmayzdy = (b_sigma_yz-f_sigma_yz)/(2*dy);
-    float dsigmayzdz = (u_sigma_yz-d_sigma_yz)/(2*dz);
+    float dsigmayzdy = (sigma_yz[b]-sigma_yz[f])/(2*dy);
+    float dsigmayzdz = (sigma_yz[u]-sigma_yz[d])/(2*dz);
 
     if (up_bd) {
-    dsigmazzdz = (-d_sigma_zz)/dz;
-    dsigmaxzdz = (-d_sigma_xz)/dz;
-    dsigmayzdz = (-d_sigma_yz)/dz;
-
-    dsigmaxzdx = 0;
-    dsigmayzdy = 0;
+    dsigmazzdz = (sigma_zz[i]-sigma_zz[d])/dz;
+    dsigmaxzdz = (sigma_xz[i]-sigma_xz[i])/dz;
+    dsigmayzdz = (-sigma_yz)/dz;
     };
 
     if (pochti_up_bd) {
@@ -482,7 +379,7 @@ __global float *out)
     out[i + 11 * len] = eps_xz;
 
 };
-"""
+'''
 
 # build the Kernel
 prog = cl.Program(ctx, code_el).build()
