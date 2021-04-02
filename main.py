@@ -270,53 +270,28 @@ __global float *out)
 
     if (up_bd) {
     dsigmazzdz = (sigma_zz[i]-sigma_zz[d])/dz;
-    dsigmaxzdz = (sigma_xz[i]-sigma_xz[i])/dz;
-    dsigmayzdz = (-sigma_yz)/dz;
+    dsigmaxzdz = (sigma_xz[i]-sigma_xz[d])/dz;
+    dsigmayzdz = (sigma_yz[i]-sigma_yz[d])/dz;
     };
 
-    if (pochti_up_bd) {
-    dsigmazzdz = (-d_sigma_zz)/(2*dz);
-    dsigmaxzdz = (-d_sigma_xz)/(2*dz);
-    dsigmayzdz = (-d_sigma_yz)/(2*dz);
-    };
 
     if (back_bd) {
-    dsigmayydy = (-f_sigma_yy)/dy;
-    dsigmaxydy = (-f_sigma_xy)/dy;
-    dsigmayzdy = (-f_sigma_yz)/dy;
-
-    dsigmaxydx = 0;
-    dsigmayzdz = 0;
-    };
-
-    if (pochti_back_bd) {
-    dsigmayydy = (-f_sigma_yy)/(2*dy);
-    dsigmaxydy = (-f_sigma_xy)/(2*dy);
-    dsigmayzdy = (-f_sigma_yz)/(2*dy);
+    dsigmayydy = (-sigma_yy)/dy;
+    dsigmaxydy = (-sigma_xy)/dy;
+    dsigmayzdy = (-sigma_yz)/dy;
     };
 
     if (front_bd) {
     dsigmayydy = (b_sigma_yy)/dy;
     dsigmaxydy = (b_sigma_xy)/dy;
     dsigmayzdy = (b_sigma_yz)/dy;
-
-    dsigmaxydx = 0;
-    dsigmayzdz = 0;
     };
 
-    if (pochti_front_bd) {
-    dsigmayydy = (b_sigma_yy)/(2*dy);
-    dsigmaxydy = (b_sigma_xy)/(2*dy);
-    dsigmayzdy = (b_sigma_yz)/(2*dy);
-    };
 
     if (right_bd) {
     dsigmaxxdx = (-l_sigma_xx)/dx;
     dsigmaxydx = (-l_sigma_xy)/dx;
     dsigmaxzdx = (-l_sigma_xz)/dx;
-
-    dsigmaxydy = 0;
-    dsigmaxzdz = 0;
     };
 
     if (pochti_right_bd) {
