@@ -14,7 +14,7 @@ class elasto:
         self.Lx = Lx
         self.Ly = Ly
         self.Lz = Lz
-        self.L =  Lx * Ly * Lz
+        self.L  = Lx * Ly * Lz
         self.dx = dx
         self.dy = dy
         self.dz = dz
@@ -27,11 +27,8 @@ class elasto:
         self.rho = rho
         self.Alpha = Alpha
 
-        self.empty = np.zeros(self.L).astype(np.float32)
-
         self.coord_syst = '''
 
-        const int len = '''+str(self.L)+''';
         const int lx =  '''+str(self.Lx)+''';
         const int ly =  '''+str(self.Ly)+''';
         const int lz =  '''+str(self.Lz)+''';
@@ -102,15 +99,15 @@ class elasto:
 
         self.code_el = '''
 
-        float eps_ii(float pos, float here, float neg, float di)
+        float eps_ii(float pos, float neg, float di)
             {
-            float eps = (pos-neg)/(2*di);
+            float eps = (pos-neg)/di;
             return eps;
             }
 
-        float didj(float pos, float here,float neg, float dj)
+        float didj(float pos,float neg, float dj)
             {
-            float eps = (pos-neg)/(2*dj);
+            float eps = (pos-neg)/dj;
             return eps;
             }
 
@@ -144,121 +141,339 @@ class elasto:
             return eps;
             }
 
-        __kernel void get_strains(
-        __global const float *u1, __global const float *u2, __global const float *u3,
-        __global float *sigma_xx, __global float *sigma_yy, __global float *sigma_zz,
-        __global float *sigma_xy, __global float *sigma_yz, __global float *sigma_xz,
-        __global float *eps_xx,   __global float *eps_yy,   __global float *eps_zz,
-        __global float *eps_xy,   __global float *eps_yz,   __global float *eps_xz)
+
+        __kernel void get_dstrains(
+        __global const float *u1,   __global const float *u2,   __global const float *u3,
+        __global float *dsigmaxxdx, __global float *dsigmayydy, __global float *dsigmazzdz,
+        __global float *dsigmaxydx, __global float *dsigmayzdy, __global float *dsigmaxzdx,
+        __global float *dsigmaxydy, __global float *dsigmayzdz, __global float *dsigmaxzdz,
+        __global float *eps_xx,     __global float *eps_yy,     __global float *eps_zz,
+        __global float *eps_xy,     __global float *eps_yz,     __global float *eps_xz)
 
         {   int i = get_global_id(0);
             ''' + self.coord_syst + '''
+            eps_xx[i]=eps_ii(u1[r],u1[l],2*dx);
+            eps_yy[i]=eps_ii(u2[b],u2[f],2*dy);
+            eps_zz[i]=eps_ii(u3[u],u3[d],2*dz);
 
-            eps_xx[i]=eps_ii(u1[r], u1[i], u1[l],dx);
-            eps_yy[i]=eps_ii(u2[b], u2[i], u2[f],dy);
-            eps_zz[i]=eps_ii(u3[u], u3[i], u3[d],dz);
+            float r_eps_xx=eps_ii(u1[r], u1[i],   dx);
+            float l_eps_xx=eps_ii(u1[i], u1[l],   dx);
+            float b_eps_xx=eps_ii(u1[br],u1[bl],2*dx);
+            float f_eps_xx=eps_ii(u1[fr],u1[fl],2*dx);
+            float u_eps_xx=eps_ii(u1[ur],u1[ul],2*dx);
+            float d_eps_xx=eps_ii(u1[dr],u1[dl],2*dx);
 
-            float dzdx =didj(u3[r], u3[i], u3[l], dx);
-            float dydx =didj(u2[r], u2[i], u2[l], dx);
-            float dxdy =didj(u1[b], u1[i], u1[f], dy);
-            float dzdy =didj(u3[b], u3[i], u3[f], dy);
-            float dxdz =didj(u1[u], u1[i], u1[d], dz);
-            float dydz =didj(u2[u], u2[i], u2[d], dz);
+            float b_eps_yy=eps_ii(u2[b], u2[i],   dy);
+            float f_eps_yy=eps_ii(u2[i], u2[f],   dy);
+            float r_eps_yy=eps_ii(u2[br],u2[fr],2*dy);
+            float l_eps_yy=eps_ii(u2[bl],u2[fl],2*dy);
+            float u_eps_yy=eps_ii(u2[ub],u2[uf],2*dy);
+            float d_eps_yy=eps_ii(u2[db],u2[df],2*dy);
 
-            float dxdx=didj(u1[r], u1[i], u1[l],dx);
-            float dydy=didj(u2[b], u2[i], u2[f],dy);
-            float dzdz=didj(u3[u], u3[i], u3[d],dz);
+            float u_eps_zz=eps_ii(u3[u], u3[i],   dz);
+            float d_eps_zz=eps_ii(u3[i], u3[d],   dz);
+            float r_eps_zz=eps_ii(u3[ur],u3[dr],2*dz);
+            float l_eps_zz=eps_ii(u3[ul],u3[dl],2*dz);
+            float b_eps_zz=eps_ii(u3[ub],u3[db],2*dz);
+            float f_eps_zz=eps_ii(u3[uf],u3[df],2*dz);
+
+            float dzdx =didj(u3[r], u3[l],      2*dx);
+            float rdzdx=didj(u3[r], u3[i],        dx);
+            float ldzdx=didj(u3[i], u3[l],        dx);
+            float udzdx=didj(u3[ur],u3[ul],     2*dx);
+            float ddzdx=didj(u3[dr],u3[dl],     2*dx);
+
+            float dydx =didj(u2[r], u2[l],2*dx);
+            float rdydx=didj(u2[r], u2[i],dx);
+            float ldydx=didj(u2[i], u2[l],dx);
+            float bdydx=didj(u2[br],u2[bl],2*dx);
+            float fdydx=didj(u2[fr],u2[fl],2*dx);
+
+            float dxdy =didj(u1[b], u1[f],2*dy);
+            float rdxdy=didj(u1[br],u1[fr],2*dy);
+            float ldxdy=didj(u1[bl],u1[fl],2*dy);
+            float bdxdy=didj(u1[b], u1[i],dy);
+            float fdxdy=didj(u1[i], u1[f],dy);
+
+            float dzdy =didj(u3[b], u3[f], 2*dy);
+            float bdzdy=didj(u3[b], u3[i],   dy);
+            float fdzdy=didj(u3[i], u3[f],   dy);
+            float ddzdy=didj(u3[db],u3[df],2*dy);
+            float udzdy=didj(u3[ub],u3[uf],2*dy);
+
+            float dxdz =didj(u1[u], u1[d], 2*dz);
+            float rdxdz=didj(u1[ur],u1[dr],2*dz);
+            float ldxdz=didj(u1[ul],u1[dl],2*dz);
+            float udxdz=didj(u1[u], u1[i],   dz);
+            float ddxdz=didj(u1[i], u1[d]   ,dz);
+
+            float dydz =didj(u2[u], u2[d], 2*dz);
+            float bdydz=didj(u2[ub],u2[db],2*dz);
+            float fdydz=didj(u2[uf],u2[df],2*dz);
+            float udydz=didj(u2[u], u2[i],   dz);
+            float ddydz=didj(u2[i], u2[d],   dz);
 
             if (back_bd) {
-            eps_yy[i]=(u2[i]-u2[f])/dy;
-            dxdy =    (u1[i]-u1[f])/dy;
-            dydy =    (u2[i]-u2[f])/dy;
-            dzdy =    (u3[i],u3[f])/dy;
+            eps_yy[i]=f_eps_yy;
+
+            r_eps_yy=eps_ii(u2[r],u2[fr],dy);
+            l_eps_yy=eps_ii(u2[l],u2[fl],dy);
+            u_eps_yy=eps_ii(u2[u],u2[uf],dy);
+            d_eps_yy=eps_ii(u2[d],u2[df],dy);
+
+            dxdy =didj(u1[i],u1[f] ,dy);
+            rdxdy=didj(u1[r],u1[fr],dy);
+            ldxdy=didj(u1[l],u1[fl],dy);
+            dzdy =didj(u3[i],u3[f] ,dy);
+            ddzdy=didj(u3[d],u3[df],dy);
+            udzdy=didj(u3[u],u3[uf],dy);
             };
 
             if (front_bd) {
-            eps_yy[i]=(u2[b]-u2[i])/dy;
-            dxdy =    (u1[b]-u1[i])/dy;
-            dydy =    (u2[b]-u2[i])/dy;
-            dzdy =    (u3[b]-u3[i])/dy;
+            eps_yy[i]=b_eps_yy;
+
+            r_eps_yy=eps_ii(u2[br],u2[r],dy);
+            l_eps_yy=eps_ii(u2[bl],u2[l],dy);
+            u_eps_yy=eps_ii(u2[ub],u2[u],dy);
+            d_eps_yy=eps_ii(u2[db],u2[d],dy);
+
+            dxdy =didj(u1[b], u1[i],dy);
+            rdxdy=didj(u1[br],u1[r],dy);
+            ldxdy=didj(u1[bl],u1[l],dy);
+            dzdy =didj(u3[b], u3[i],dy);
+            ddzdy=didj(u3[db],u3[d],dy);
+            udzdy=didj(u3[ub],u3[u],dy);
             };
 
             if (right_bd) {
-            eps_xx[i]=(u1[i]-u1[l])/dx;
-            dxdx =    (u1[i]-u1[l])/dx;
-            dzdx =    (u3[i]-u3[l])/dx;
-            dydx =    (u2[i]-u2[l])/dx;
+            eps_xx[i]=l_eps_xx;
+
+            b_eps_xx=eps_ii(u1[b],u1[bl],dx);
+            f_eps_xx=eps_ii(u1[f],u1[fl],dx);
+            u_eps_xx=eps_ii(u1[u],u1[ul],dx);
+            d_eps_xx=eps_ii(u1[d],u1[dl],dx);
+
+            dzdx =didj(u3[i],u3[l], dx);
+            udzdx=didj(u3[u],u3[ul],dx);
+            ddzdx=didj(u3[d],u3[dl],dx);
+            dydx =didj(u2[i],u2[l], dx);
+            bdydx=didj(u2[b],u2[bl],dx);
+            fdydx=didj(u2[f],u2[fl],dx);
             };
 
             if (left_bd) {
-            eps_xx[i]=(u1[r]-u1[i])/dx;
-            dxdx =    (u1[r]-u1[i])/dx;
-            dydx =    (u2[r]-u2[i])/dx;
-            dzdx =    (u3[r]-u3[i])/dx;
+            eps_xx[i]=r_eps_xx;
+
+            b_eps_xx=eps_ii(u1[br],u1[b],dx);
+            f_eps_xx=eps_ii(u1[fr],u1[f],dx);
+            u_eps_xx=eps_ii(u1[ur],u1[u],dx);
+            d_eps_xx=eps_ii(u1[dr],u1[d],dx);
+
+            dzdx =didj(u3[r], u3[i],dx);
+            udzdx=didj(u3[ur],u3[u],dx);
+            ddzdx=didj(u3[dr],u3[d],dx);
+            dydx =didj(u2[r], u2[i],dx);
+            bdydx=didj(u2[br],u2[b],dx);
+            fdydx=didj(u2[fr],u2[f],dx);
             };
 
             if (down_bd) {
-            eps_zz[i]=eps_ii(u3[u],u3[i], 0          ,dz);
-            dxdz =      didj(u1[u],u1[i], Eps_xx*dx*x,dz);
-            dydz =      didj(u2[u],u2[i], Eps_yy*dy*y,dz);
-            dzdz =      didj(u3[u],u3[i], 0          ,dz);
+
+            eps_zz[i]=eps_ii(u3[u],u3[i],dz);
+
+            d_eps_xx=Eps_xx;
+            d_eps_yy=Eps_yy;
+
+            d_eps_zz=eps_ii(u3[i], 0,    dz);
+            r_eps_zz=eps_ii(u3[ur],u3[r],dz);
+            l_eps_zz=eps_ii(u3[ul],u3[l],dz);
+            b_eps_zz=eps_ii(u3[ub],u3[b],dz);
+            f_eps_zz=eps_ii(u3[uf],u3[f],dz);
+
+            ddzdx=0;
+            ddzdy=0;
+
+            dxdz =didj(u1[u], u1[i], dz);
+            rdxdz=didj(u1[ur],u1[r], dz);
+            ldxdz=didj(u1[ul],u1[l], dz);
+            ddxdz=didj(u1[i], Eps_xx * dx * x, dz);
+
+            dydz =didj(u2[u], u2[i], dz);
+            bdydz=didj(u2[ub],u2[b], dz);
+            fdydz=didj(u2[uf],u2[f], dz);
+            ddydz=didj(u2[i], Eps_yy * dy * y, dz);
             };
 
+
             if (up_bd) {
-            eps_zz[i]=(u3[i]-u3[d])/dz;
-            dxdz =    (u1[i]-u1[d])/dz;
-            dydz =    (u2[i]-u2[d])/dz;
-            dzdz =    (u3[i]-u3[d])/dz;
+            eps_zz[i]=eps_ii(u3[i],u3[d], dz);
+
+            r_eps_zz=eps_ii(u3[r],u3[dr],dz);
+            l_eps_zz=eps_ii(u3[l],u3[dl],dz);
+            b_eps_zz=eps_ii(u3[b],u3[db],dz);
+            f_eps_zz=eps_ii(u3[f],u3[df],dz);
+
+            dxdz =didj(u1[i],u1[d], dz);
+            rdxdz=didj(u1[r],u1[dr],dz);
+            ldxdz=didj(u1[l],u1[dl],dz);
+            dydz =didj(u2[i],u2[d], dz);
+            bdydz=didj(u2[b],u2[db],dz);
+            fdydz=didj(u2[f],u2[df],dz);
             };
 
             barrier(CLK_GLOBAL_MEM_FENCE);
 
-            eps_xy[i]=eps_ij(dxdy, dydx);
-            eps_yz[i]=eps_ij(dydz, dzdy);
-            eps_xz[i]=eps_ij(dxdz, dzdx);
+            eps_xz[i]=eps_ij( dxdz, dzdx);
+            float u_eps_xz=eps_ij(udxdz,udzdx);
+            float d_eps_xz=eps_ij(ddxdz,ddzdx);
+            float r_eps_xz=eps_ij(rdxdz,rdzdx);
+            float l_eps_xz=eps_ij(ldxdz,ldzdx);
 
-            if (x_bd) {
-            sigma_xx[i] = 0;
-            }
-            else {
-            sigma_xx[i] = sigma_ii(c11, eps_xx[i], c12, dydy, dzdz);
-            };
+            eps_xy[i]=eps_ij( dxdy, dydx);
+            float r_eps_xy=eps_ij(rdxdy,rdydx);
+            float l_eps_xy=eps_ij(ldxdy,ldydx);
+            float b_eps_xy=eps_ij(bdxdy,bdydx);
+            float f_eps_xy=eps_ij(fdxdy,fdydx);
 
-            if (y_bd) {
-            sigma_yy[i] = 0;
-            }
-            else {
-            sigma_yy[i] = sigma_ii(c11, eps_yy[i], c12, dxdx, dzdz);
-            };
+            eps_yz[i]=eps_ij( dydz, dzdy);
+            float b_eps_yz=eps_ij(bdydz,bdzdy);
+            float f_eps_yz=eps_ij(fdydz,fdzdy);
+            float u_eps_yz=eps_ij(udydz,udzdy);
+            float d_eps_yz=eps_ij(ddydz,ddzdy);
+
+
+            barrier(CLK_GLOBAL_MEM_FENCE);
+
+            float r_sigma_xx  = sigma_ii(c11,r_eps_xx,c12,r_eps_yy,r_eps_zz);
+            float l_sigma_xx  = sigma_ii(c11,l_eps_xx,c12,l_eps_yy,l_eps_zz);
+            float b_sigma_yy  = sigma_ii(c11,b_eps_yy,c12,b_eps_xx,b_eps_zz);
+            float f_sigma_yy  = sigma_ii(c11,f_eps_yy,c12,f_eps_xx,f_eps_zz);
+            float u_sigma_zz  = sigma_ii(c11,u_eps_zz,c12,u_eps_xx,u_eps_yy);
+            float d_sigma_zz  = sigma_ii(c11,d_eps_zz,c12,d_eps_xx,d_eps_yy);
+
+            float r_sigma_xy = sigma_ij(c44, r_eps_xy);
+            float l_sigma_xy = sigma_ij(c44, l_eps_xy);
+            float b_sigma_xy = sigma_ij(c44, b_eps_xy);
+            float f_sigma_xy = sigma_ij(c44, f_eps_xy);
+
+            float r_sigma_xz = sigma_ij(c44, r_eps_xz);
+            float l_sigma_xz = sigma_ij(c44, l_eps_xz);
+            float u_sigma_xz = sigma_ij(c44, u_eps_xz);
+            float d_sigma_xz = sigma_ij(c44, d_eps_xz);
+
+            float b_sigma_yz = sigma_ij(c44, b_eps_yz);
+            float f_sigma_yz = sigma_ij(c44, f_eps_yz);
+            float d_sigma_yz = sigma_ij(c44, d_eps_yz);
+            float u_sigma_yz = sigma_ij(c44, u_eps_yz);
+
+            dsigmaxxdx[i] = (r_sigma_xx-l_sigma_xx)/(2*dx);
+            dsigmayydy[i] = (b_sigma_yy-f_sigma_yy)/(2*dy);
+            dsigmazzdz[i] = (u_sigma_zz-d_sigma_zz)/(2*dz);
+
+            dsigmaxydx[i] = (r_sigma_xy-l_sigma_xy)/(2*dx);
+            dsigmaxydy[i] = (b_sigma_xy-f_sigma_xy)/(2*dy);
+
+            dsigmaxzdx[i] = (r_sigma_xz-l_sigma_xz)/(2*dx);
+            dsigmaxzdz[i] = (u_sigma_xz-d_sigma_xz)/(2*dz);
+
+            dsigmayzdy[i] = (b_sigma_yz-f_sigma_yz)/(2*dy);
+            dsigmayzdz[i] = (u_sigma_yz-d_sigma_yz)/(2*dz);
 
             if (up_bd) {
-            sigma_zz[i] = 0;
-            }
-            else {
-            sigma_zz[i] = sigma_ii(c11, eps_zz[i], c12, dydy, dzdz);
+            dsigmazzdz[i] = (-d_sigma_zz)/dz;
+            dsigmaxzdz[i] = (-d_sigma_xz)/dz;
+            dsigmayzdz[i] = (-d_sigma_yz)/dz;
+
+            dsigmaxzdx[i] = 0;
+            dsigmayzdy[i] = 0;
             };
 
-            if (x_bd || y_bd) {
-            sigma_xy[i] = 0;
-            }
-            else{
-            sigma_xy[i] = sigma_ij(c44, eps_xy[i]);
+            if (pochti_up_bd) {
+            dsigmazzdz[i] = (-d_sigma_zz)/(2*dz);
+            dsigmaxzdz[i] = (-d_sigma_xz)/(2*dz);
+            dsigmayzdz[i] = (-d_sigma_yz)/(2*dz);
             };
 
-            if (x_bd || up_bd) {
-            sigma_xz[i] = 0;
-            }
-            else {
-            sigma_xz[i] = sigma_ij(c44, eps_xz[i]);
+            if (back_bd) {
+            dsigmayydy[i] = (-f_sigma_yy)/dy;
+            dsigmaxydy[i] = (-f_sigma_xy)/dy;
+            dsigmayzdy[i] = (-f_sigma_yz)/dy;
+
+            dsigmaxydx[i] = 0;
+            dsigmayzdz[i] = 0;
             };
 
-            if (y_bd || up_bd) {
-            sigma_yz[i] = 0;
-            }
-            else {
-            sigma_yz[i] = sigma_ij(c44, eps_yz[i]);
+            if (pochti_back_bd) {
+            dsigmayydy[i] = (-f_sigma_yy)/(2*dy);
+            dsigmaxydy[i] = (-f_sigma_xy)/(2*dy);
+            dsigmayzdy[i] = (-f_sigma_yz)/(2*dy);
             };
 
+            if (front_bd) {
+            dsigmayydy[i] = (b_sigma_yy)/dy;
+            dsigmaxydy[i] = (b_sigma_xy)/dy;
+            dsigmayzdy[i] = (b_sigma_yz)/dy;
+
+            dsigmaxydx[i] = 0;
+            dsigmayzdz[i] = 0;
+            };
+
+            if (pochti_front_bd) {
+            dsigmayydy[i] = (b_sigma_yy)/(2*dy);
+            dsigmaxydy[i] = (b_sigma_xy)/(2*dy);
+            dsigmayzdy[i] = (b_sigma_yz)/(2*dy);
+            };
+
+            if (right_bd) {
+            dsigmaxxdx[i] = (-l_sigma_xx)/dx;
+            dsigmaxydx[i] = (-l_sigma_xy)/dx;
+            dsigmaxzdx[i] = (-l_sigma_xz)/dx;
+
+            dsigmaxydy[i] = 0;
+            dsigmaxzdz[i] = 0;
+            };
+
+            if (pochti_right_bd) {
+            dsigmaxxdx[i] = (-l_sigma_xx)/(2*dx);
+            dsigmaxydx[i] = (-l_sigma_xy)/(2*dx);
+            dsigmaxzdx[i] = (-l_sigma_xz)/(2*dx);
+            };
+
+            if (left_bd) {
+            dsigmaxxdx[i] = (r_sigma_xx)/dx;
+            dsigmaxydx[i] = (r_sigma_xy)/dx;
+            dsigmaxzdx[i] = (r_sigma_xz)/dx;
+
+            dsigmaxydy[i] = 0;
+            dsigmaxzdz[i] = 0;
+            };
+
+            if (pochti_left_bd) {
+            dsigmaxxdx[i] = (r_sigma_xx)/(2*dx);
+            dsigmaxydx[i] = (r_sigma_xy)/(2*dx);
+            dsigmaxzdx[i] = (r_sigma_xz)/(2*dx);
+            };
+
+            if (up_bd && x_bd) {
+            dsigmaxydy[i] = 0;
+            dsigmaxzdz[i] = 0;
+            dsigmaxzdx[i] = 0;
+            dsigmayzdy[i] = 0;
+            };
+
+            if (up_bd && y_bd) {
+            dsigmaxzdx[i] = 0;
+            dsigmayzdy[i] = 0;
+            dsigmaxydx[i] = 0;
+            dsigmayzdz[i] = 0;
+            };
+
+            if (x_bd && y_bd) {
+            dsigmaxydx[i] = 0;
+            dsigmayzdz[i] = 0;
+            dsigmaxydy[i] = 0;
+            dsigmaxzdz[i] = 0;
+            };
         };
 
 
@@ -301,74 +516,22 @@ class elasto:
             MEx[i] = B1*dmxmxdx + B2*(dmxmydy + dmxmzdz);
             MEy[i] = B1*dmymydy + B2*(dmxmydx + dmymzdz);
             MEz[i] = B1*dmzmzdz + B2*(dmxmzdx + dmymzdy);
-
         };
 
 
         __kernel void integrate(
-        __global float *u1, __global float *u2, __global float *u3,
-        __global float *v1, __global float *v2, __global float *v3,
-        __global const float *sigma_xx,__global const float *sigma_yy,__global const float *sigma_zz,
-        __global const float *sigma_xy,__global const float *sigma_yz,__global const float *sigma_xz)
+        __global float *u1,         __global float *u2,         __global float *u3,
+        __global float *v1,         __global float *v2,         __global float *v3,
+        __global float *dsigmaxxdx, __global float *dsigmayydy, __global float *dsigmazzdz,
+        __global float *dsigmaxydx, __global float *dsigmayzdy, __global float *dsigmaxzdx,
+        __global float *dsigmaxydy, __global float *dsigmayzdz, __global float *dsigmaxzdz)
 
         {   int i = get_global_id(0);
             ''' + self.coord_syst + '''
 
-            float dsigmaxxdx = dsigmaiidi(sigma_xx[r],sigma_xx[i],sigma_xx[l],dx);
-            float dsigmayydy = dsigmaiidi(sigma_yy[b],sigma_yy[i],sigma_yy[f],dy);
-            float dsigmazzdz = dsigmaiidi(sigma_zz[u],sigma_zz[i],sigma_zz[d],dz);
-
-            float dsigmaxydx = dsigmaijdj(sigma_xy[r],sigma_xy[i],sigma_xy[l],dx);
-            float dsigmaxydy = dsigmaijdj(sigma_xy[b],sigma_xy[i],sigma_xy[f],dy);
-
-            float dsigmaxzdx = dsigmaijdj(sigma_xz[r],sigma_xz[i],sigma_xz[l],dx);
-            float dsigmaxzdz = dsigmaijdj(sigma_xz[u],sigma_xz[i],sigma_xz[d],dz);
-
-            float dsigmayzdy = dsigmaijdj(sigma_yz[b],sigma_yz[i],sigma_yz[f],dy);
-            float dsigmayzdz = dsigmaijdj(sigma_yz[u],sigma_yz[i],sigma_yz[d],dz);
-
-            if (up_bd) {
-            dsigmazzdz = (sigma_zz[i]-sigma_zz[d])/dz;
-            dsigmaxzdz = (sigma_xz[i]-sigma_xz[d])/dz;
-            dsigmayzdz = (sigma_yz[i]-sigma_yz[d])/dz;
-            };
-
-            if (down_bd) {
-            dsigmazzdz = (sigma_zz[u] - sigma_zz[i])/dz;
-            dsigmaxzdz = (sigma_xz[u] - sigma_xz[i])/dz;
-            dsigmayzdz = (sigma_yz[u] - sigma_yz[i])/dz;
-            };
-
-            if (back_bd) {
-            dsigmayydy = (sigma_yy[i]-sigma_yy[f])/dy;
-            dsigmaxydy = (sigma_xy[i]-sigma_xy[f])/dy;
-            dsigmayzdy = (sigma_yz[i]-sigma_yz[f])/dy;
-            };
-
-            if (front_bd) {
-            dsigmayydy = (sigma_yy[b]-sigma_yy[i])/dy;
-            dsigmaxydy = (sigma_xy[b]-sigma_xy[i])/dy;
-            dsigmayzdy = (sigma_yz[b]-sigma_yz[i])/dy;
-            };
-
-
-            if (right_bd) {
-            dsigmaxxdx = (sigma_xx[i]-sigma_xx[l])/dx;
-            dsigmaxydx = (sigma_xy[i]-sigma_xy[l])/dx;
-            dsigmaxzdx = (sigma_xz[i]-sigma_xz[l])/dx;
-            };
-
-            if (left_bd) {
-            dsigmaxxdx = (sigma_xx[r]-sigma_xx[i])/dx;
-            dsigmaxydx = (sigma_xy[r]-sigma_xy[i])/dx;
-            dsigmaxzdx = (sigma_xz[r]-sigma_xz[i])/dx;
-            };
-
-            barrier(CLK_GLOBAL_MEM_FENCE);
-
-            float U1f = (2*(dsigmaxxdx + dsigmaxydy + dsigmaxzdz)*dt2 + 4*rho*u1[i] + (Alpha*dt - 2*rho)*v1[i])/(Alpha*dt + 2*rho);
-            float U2f = (2*(dsigmaxydx + dsigmayydy + dsigmayzdz)*dt2 + 4*rho*u2[i] + (Alpha*dt - 2*rho)*v2[i])/(Alpha*dt + 2*rho);
-            float U3f = (2*(dsigmaxzdx + dsigmayzdy + dsigmazzdz)*dt2 + 4*rho*u3[i] + (Alpha*dt - 2*rho)*v3[i])/(Alpha*dt + 2*rho);
+            float U1f = (2*(dsigmaxxdx[i] + dsigmaxydy[i] + dsigmaxzdz[i])*dt2 + 4*rho*u1[i] + (Alpha*dt - 2*rho)*v1[i])/(Alpha*dt + 2*rho);
+            float U2f = (2*(dsigmaxydx[i] + dsigmayydy[i] + dsigmayzdz[i])*dt2 + 4*rho*u2[i] + (Alpha*dt - 2*rho)*v2[i])/(Alpha*dt + 2*rho);
+            float U3f = (2*(dsigmaxzdx[i] + dsigmayzdy[i] + dsigmazzdz[i])*dt2 + 4*rho*u3[i] + (Alpha*dt - 2*rho)*v3[i])/(Alpha*dt + 2*rho);
 
             barrier(CLK_GLOBAL_MEM_FENCE);
 
@@ -380,7 +543,6 @@ class elasto:
             u2[i] = U2f;
             u3[i] = U3f;
         };
-
         '''
 
         # build the Kernel
@@ -400,12 +562,15 @@ class elasto:
         self.eps_yz = np.zeros(self.L).astype(np.float32)
         self.eps_xz = np.zeros(self.L).astype(np.float32)
 
-        self.sigma_xx = np.zeros(self.L).astype(np.float32)
-        self.sigma_yy = np.zeros(self.L).astype(np.float32)
-        self.sigma_zz = np.zeros(self.L).astype(np.float32)
-        self.sigma_xy = np.zeros(self.L).astype(np.float32)
-        self.sigma_yz = np.zeros(self.L).astype(np.float32)
-        self.sigma_xz = np.zeros(self.L).astype(np.float32)
+        self.dsigmaxxdx = np.zeros(self.L).astype(np.float32)
+        self.dsigmayydy = np.zeros(self.L).astype(np.float32)
+        self.dsigmazzdz = np.zeros(self.L).astype(np.float32)
+        self.dsigmaxydx = np.zeros(self.L).astype(np.float32)
+        self.dsigmaxydy = np.zeros(self.L).astype(np.float32)
+        self.dsigmayzdy = np.zeros(self.L).astype(np.float32)
+        self.dsigmayzdz = np.zeros(self.L).astype(np.float32)
+        self.dsigmaxzdx = np.zeros(self.L).astype(np.float32)
+        self.dsigmaxzdz = np.zeros(self.L).astype(np.float32)
 
         mf = cl.mem_flags
 
@@ -423,29 +588,34 @@ class elasto:
         self.eps_yz_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.eps_yz)
         self.eps_xz_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.eps_xz)
 
-        self.sigma_xx_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.sigma_xx)
-        self.sigma_yy_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.sigma_yy)
-        self.sigma_zz_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.sigma_zz)
-        self.sigma_xy_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.sigma_xy)
-        self.sigma_yz_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.sigma_yz)
-        self.sigma_xz_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.sigma_xz)
+        self.dsigmaxxdx_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.dsigmaxxdx)
+        self.dsigmayydy_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.dsigmayydy)
+        self.dsigmazzdz_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.dsigmazzdz)
+        self.dsigmaxydx_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.dsigmaxydx)
+        self.dsigmaxydy_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.dsigmaxydy)
+        self.dsigmayzdy_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.dsigmayzdy)
+        self.dsigmayzdz_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.dsigmayzdz)
+        self.dsigmaxzdx_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.dsigmaxzdx)
+        self.dsigmaxzdz_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.dsigmaxzdz)
 
 
     def dynamics(self):
 
-        launch = self.prog.get_strains(self.queue, self.empty.shape, None,
+        launch = self.prog.get_dstrains(self.queue, self.u1.shape, None,
         self.u1_buf, self.u2_buf, self.u3_buf,
-        self.sigma_xx_buf,self.sigma_yy_buf,self.sigma_zz_buf,
-        self.sigma_xy_buf,self.sigma_yz_buf,self.sigma_xz_buf,
+        self.dsigmaxxdx_buf,self.dsigmayydy_buf,self.dsigmazzdz_buf,
+        self.dsigmaxydx_buf,self.dsigmayzdy_buf,self.dsigmaxzdx_buf,
+        self.dsigmaxydy_buf,self.dsigmayzdz_buf,self.dsigmaxzdz_buf,
         self.eps_xx_buf,  self.eps_yy_buf,  self.eps_zz_buf,
         self.eps_xy_buf,  self.eps_yz_buf,  self.eps_xz_buf)
         launch.wait()
 
-        launch = self.prog.integrate(self.queue, self.empty.shape, None,
+        launch = self.prog.integrate(self.queue, self.u1.shape, None,
         self.u1_buf, self.u2_buf, self.u3_buf,
         self.v1_buf, self.v2_buf, self.v3_buf,
-        self.sigma_xx_buf,self.sigma_yy_buf,self.sigma_zz_buf,
-        self.sigma_xy_buf,self.sigma_yz_buf,self.sigma_xz_buf)
+        self.dsigmaxxdx_buf,self.dsigmayydy_buf,self.dsigmazzdz_buf,
+        self.dsigmaxydx_buf,self.dsigmayzdy_buf,self.dsigmaxzdx_buf,
+        self.dsigmaxydy_buf,self.dsigmayzdz_buf,self.dsigmaxzdz_buf)
         launch.wait()
 
     def plot_xy_pl(self, layer, dir, count):
