@@ -91,8 +91,8 @@ class elasto:
         const float rho =      '''+str(self.rho)+''';
         const float Eps_xx =   '''+str(self.Eps_xx)+''';
         const float Eps_yy =   '''+str(self.Eps_yy)+''';
-        const float B1 =  -2;
-        const float B2 =  -1.5;
+        const float B1 =  0*-2;
+        const float B2 =  0*-1.5;
         '''
 
         # OpenCL elastic
@@ -144,7 +144,6 @@ class elasto:
             dsigmaxydy = (sigma_xy[b]-sigma_xy[i])/dy;
             dsigmayzdy = (sigma_yz[b]-sigma_yz[i])/dy;
             };
-
 
             if (right_bd) {
             dsigmaxxdx = (sigma_xx[i]-sigma_xx[l])/dx;
@@ -225,7 +224,6 @@ class elasto:
             float dvydz = (vy[u]-vy[i])/dz;
             float dvzdz = (vz[i]-vz[d])/dz;
 
-
             if (up_bd) {
             dvxdz = (vx[i]-vx[d])/dz;
             dvydz = (vy[i]-vy[d])/dz;
@@ -278,9 +276,9 @@ class elasto:
             float new_sigmaxz = sigma_xz[i] + dsigmaxzdt * dt;
 
             if (down_bd) {
-            new_sigmaxx = c11 * Eps_xx + c12 * (vz[i] * dt / dz + Eps_yy);
-            new_sigmayy = c11 * Eps_yy + c12 * (vz[i] * dt / dz + Eps_xx);
-            new_sigmazz = c11 * vz[i] * dt / dz + c12 * (Eps_xx + Eps_yy);
+            new_sigmaxx = c11 * Eps_xx + c12 * (vz[u] * dt / dz + Eps_yy);
+            new_sigmayy = c11 * Eps_yy + c12 * (vz[u] * dt / dz + Eps_xx);
+            new_sigmazz = c11 * vz[u] * dt / dz + c12 * (Eps_xx + Eps_yy);
 
             new_sigmaxy = 0;
             new_sigmayz = 0;
