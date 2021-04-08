@@ -104,11 +104,11 @@ class elasto:
 
         float eps_ii(float pos, float here, float neg, float di)
             {
-            float eps = (pos-here)/di;
+            float eps = (pos-neg)/(2*di);
             return eps;
             }
 
-        float didj(float pos, float here, float neg, float dj)
+        float didj(float pos, float here,float neg, float dj)
             {
             float eps = (pos-neg)/(2*dj);
             return eps;
@@ -262,125 +262,6 @@ class elasto:
         };
 
 
-
-        __kernel void get_dstrains(
-        __global const float *u1, __global const float *u2, __global const float *u3,
-        __global float *dsigma_xx, __global float *dsigma_yy, __global float *dsigma_zz,
-        __global float *dsigma_xy, __global float *dsigma_yz, __global float *dsigma_xz,
-        __global float *eps_xx,   __global float *eps_yy,   __global float *eps_zz,
-        __global float *eps_xy,   __global float *eps_yz,   __global float *eps_xz)
-
-        {   int i = get_global_id(0);
-            ''' + self.coord_syst + '''
-
-            eps_xx[i]=eps_ii(u1[r], u1[i], u1[l], dx);
-            eps_yy[i]=eps_ii(u2[b], u2[i], u2[f], dy);
-            eps_zz[i]=eps_ii(u3[u], u3[i], u3[d], dz);
-
-            float dzdx =didj(u3[r], u3[i], u3[l], dx);
-            float dydx =didj(u2[r], u2[i], u2[l], dx);
-            float dxdy =didj(u1[b], u1[i], u1[f], dy);
-            float dzdy =didj(u3[b], u3[i], u3[f], dy);
-            float dxdz =didj(u1[u], u1[i], u1[d], dz);
-            float dydz =didj(u2[u], u2[i], u2[d], dz);
-
-            float dxdx =didj(u1[r], u1[i], u1[l], dx);
-            float dydy =didj(u2[b], u2[i], u2[f], dy);
-            float dzdz =didj(u3[u], u3[i], u3[d], dz);
-
-            if (back_bd) {
-            eps_yy[i]=(u2[i]-u2[f])/dy;
-            dxdy =    (u1[i]-u1[f])/dy;
-            dydy =    (u2[i]-u2[f])/dy;
-            dzdy =    (u3[i],u3[f])/dy;
-            };
-
-            if (front_bd) {
-            eps_yy[i]=(u2[b]-u2[i])/dy;
-            dxdy =    (u1[b]-u1[i])/dy;
-            dydy =    (u2[b]-u2[i])/dy;
-            dzdy =    (u3[b]-u3[i])/dy;
-            };
-
-            if (right_bd) {
-            eps_xx[i]=(u1[i]-u1[l])/dx;
-            dxdx =    (u1[i]-u1[l])/dx;
-            dzdx =    (u3[i]-u3[l])/dx;
-            dydx =    (u2[i]-u2[l])/dx;
-            };
-
-            if (left_bd) {
-            eps_xx[i]=(u1[r]-u1[i])/dx;
-            dxdx =    (u1[r]-u1[i])/dx;
-            dydx =    (u2[r]-u2[i])/dx;
-            dzdx =    (u3[r]-u3[i])/dx;
-            };
-
-            if (down_bd) {
-            eps_zz[i]=eps_ii(u3[u],u3[i], 0          ,dz);
-            dxdz =      didj(u1[u],u1[i], Eps_xx*dx*x,dz);
-            dydz =      didj(u2[u],u2[i], Eps_yy*dy*y,dz);
-            dzdz =      didj(u3[u],u3[i], 0          ,dz);
-            };
-
-            if (up_bd) {
-            eps_zz[i]=(u3[i]-u3[d])/dz;
-            dxdz =    (u1[i]-u1[d])/dz;
-            dydz =    (u2[i]-u2[d])/dz;
-            dzdz =    (u3[i]-u3[d])/dz;
-            };
-
-            barrier(CLK_GLOBAL_MEM_FENCE);
-
-            eps_xy[i]=eps_ij(dxdy, dydx);
-            eps_yz[i]=eps_ij(dydz, dzdy);
-            eps_xz[i]=eps_ij(dxdz, dzdx);
-
-            if (x_bd) {
-            dsigma_xx[i] = 0;
-            }
-            else {
-            dsigma_xx[i] = sigma_ii(c11, eps_xx[i], c12, dydy, dzdz);
-            };
-
-            if (y_bd) {
-            dsigma_yy[i] = 0;
-            }
-            else {
-            dsigma_yy[i] = sigma_ii(c11, eps_yy[i], c12, dxdx, dzdz);
-            };
-
-            if (up_bd) {
-            dsigma_zz[i] = 0;
-            }
-            else {
-            dsigma_zz[i] = sigma_ii(c11, eps_zz[i], c12, dydy, dzdz);
-            };
-
-            if (x_bd || y_bd) {
-            dsigma_xy[i] = 0;
-            }
-            else{
-            dsigma_xy[i] = sigma_ij(c44, eps_xy[i]);
-            };
-
-            if (x_bd || up_bd) {
-            dsigma_xz[i] = 0;
-            }
-            else {
-            dsigma_xz[i] = sigma_ij(c44, eps_xz[i]);
-            };
-
-            if (y_bd || up_bd) {
-            dsigma_yz[i] = 0;
-            }
-            else {
-            dsigma_yz[i] = sigma_ij(c44, eps_yz[i]);
-            };
-
-        };
-
-
         __kernel void get_magnetoelastic(
         __global const float *m1, __global const float *m2, __global const float *m3,
         __global float *MEx,      __global float *MEy,      __global float *MEz)
@@ -499,40 +380,55 @@ class elasto:
             u2[i] = U2f;
             u3[i] = U3f;
         };
+
         '''
 
         # build the Kernel
         self.prog = cl.Program(self.ctx, self.code_el).build()
 
-        self.eps_xx = self.empty
-        self.eps_yy = self.empty
-        self.eps_zz = self.empty
-        self.eps_xy = self.empty
-        self.eps_yz = self.empty
-        self.eps_xz = self.empty
+        self.u1 = np.zeros(self.L).astype(np.float32)
+        self.u2 = np.zeros(self.L).astype(np.float32)
+        self.u3 = np.zeros(self.L).astype(np.float32)
+        self.v1 = np.zeros(self.L).astype(np.float32)
+        self.v2 = np.zeros(self.L).astype(np.float32)
+        self.v3 = np.zeros(self.L).astype(np.float32)
+
+        self.eps_xx = np.zeros(self.L).astype(np.float32)
+        self.eps_yy = np.zeros(self.L).astype(np.float32)
+        self.eps_zz = np.zeros(self.L).astype(np.float32)
+        self.eps_xy = np.zeros(self.L).astype(np.float32)
+        self.eps_yz = np.zeros(self.L).astype(np.float32)
+        self.eps_xz = np.zeros(self.L).astype(np.float32)
+
+        self.sigma_xx = np.zeros(self.L).astype(np.float32)
+        self.sigma_yy = np.zeros(self.L).astype(np.float32)
+        self.sigma_zz = np.zeros(self.L).astype(np.float32)
+        self.sigma_xy = np.zeros(self.L).astype(np.float32)
+        self.sigma_yz = np.zeros(self.L).astype(np.float32)
+        self.sigma_xz = np.zeros(self.L).astype(np.float32)
 
         mf = cl.mem_flags
 
-        self.u1_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.empty)
-        self.u2_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.empty)
-        self.u3_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.empty)
-        self.v1_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.empty)
-        self.v2_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.empty)
-        self.v3_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.empty)
+        self.u1_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.u1)
+        self.u2_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.u2)
+        self.u3_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.u3)
+        self.v1_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.v1)
+        self.v2_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.v2)
+        self.v3_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.v3)
 
-        self.eps_xx_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.empty)
-        self.eps_yy_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.empty)
-        self.eps_zz_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.empty)
-        self.eps_xy_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.empty)
-        self.eps_yz_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.empty)
-        self.eps_xz_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.empty)
+        self.eps_xx_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.eps_xx)
+        self.eps_yy_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.eps_yy)
+        self.eps_zz_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.eps_zz)
+        self.eps_xy_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.eps_xy)
+        self.eps_yz_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.eps_yz)
+        self.eps_xz_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.eps_xz)
 
-        self.sigma_xx_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.empty)
-        self.sigma_yy_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.empty)
-        self.sigma_zz_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.empty)
-        self.sigma_xy_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.empty)
-        self.sigma_yz_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.empty)
-        self.sigma_xz_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.empty)
+        self.sigma_xx_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.sigma_xx)
+        self.sigma_yy_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.sigma_yy)
+        self.sigma_zz_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.sigma_zz)
+        self.sigma_xy_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.sigma_xy)
+        self.sigma_yz_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.sigma_yz)
+        self.sigma_xz_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.sigma_xz)
 
 
     def dynamics(self):
