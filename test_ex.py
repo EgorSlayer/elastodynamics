@@ -3,12 +3,12 @@ from elastodynamics_vel import elasto
 Lx = 100
 Ly = 100
 Lz = 5
-dx = 0.001     #m
-dy = 0.001      #m
-dz = 0.001      #m
-dt = 0.0003        #s
-Eps_yy= 0
-Eps_xx= 0     #Abs deformations at sub
+dx = 2.5     #m
+dy = 2.5      #m
+dz = 2.5      #m
+dt = 0.2        #s
+Eps_yy= 0.0001
+Eps_xx= 0.0001     #Abs deformations at sub
 directory = "/home/heisenberg/Desktop/НИР/ELASTIC/modeling3D"
 
 c11 = 5   #Pa
@@ -26,7 +26,7 @@ for t in range(time):
 
     el_calc.dynamics()
 
-    if t % 10 == 0:
+    if t % 10000 == 0:
 
         count += 1
 
