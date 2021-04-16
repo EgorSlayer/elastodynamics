@@ -71,24 +71,12 @@ class elasto:
         int b=i+lx;
         int u=i+pl;
         int d=i-pl;
-        int fl=i-lx-1;
-        int fr=i-lx+1;
-        int br=i+lx+1;
-        int bl=i+lx-1;
-        int dl=i-pl-1;
-        int dr=i-pl+1;
-        int ul=i+pl-1;
-        int ur=i+pl+1;
-        int db=i-pl+lx;
-        int df=i-pl-lx;
-        int uf=i+pl-lx;
-        int ub=i+pl+lx;
 
         const float Alpha =    '''+str(self.Alpha)+''';
         const float c11 =      '''+str(self.c11)+''';
         const float c12 =      '''+str(self.c12)+''';
         const float c44 =      '''+str(self.c44)+''';
-        const float rho =      '''+str(self.rho)+''';
+        float rho =      '''+str(self.rho)+''';
         const float Eps_xx =   '''+str(self.Eps_xx)+''';
         const float Eps_yy =   '''+str(self.Eps_yy)+''';
         const float B1 =  0*-2;
@@ -98,6 +86,11 @@ class elasto:
         # OpenCL elastic
 
         self.code_el = '''
+
+        float shift(float pos, float neg) {
+        float res = (pos + neg)/2;
+        return res;
+        }
 
         __kernel void update_velocity(
         __global float *vx,       __global float *vy,       __global float *vz,
@@ -122,40 +115,30 @@ class elasto:
             float dsigmayzdz = (sigma_yz[i]-sigma_yz[d])/dz;
 
             if (up_bd) {
-            dsigmazzdz = (sigma_zz[i]-sigma_zz[d])/dz;
-            dsigmaxzdz = (sigma_xz[i]-sigma_xz[d])/dz;
-            dsigmayzdz = (sigma_yz[i]-sigma_yz[d])/dz;
+            dsigmazzdz = (0-sigma_zz[i])/dz;
+
             };
 
             if (down_bd) {
-            dsigmazzdz = (sigma_zz[u]-sigma_zz[i])/dz;
-            dsigmaxzdz = (sigma_xz[u]-sigma_xz[i])/dz;
-            dsigmayzdz = (sigma_yz[u]-sigma_yz[i])/dz;
+            dsigmaxzdz = (sigma_xz[i]-sigma_xz[i])/dz;
+            dsigmayzdz = (sigma_yz[i]-sigma_xz[i])/dz;
             };
 
             if (back_bd) {
-            dsigmayydy = (sigma_yy[i]-sigma_yy[f])/dy;
-            dsigmaxydy = (sigma_xy[i]-sigma_xy[f])/dy;
-            dsigmayzdy = (sigma_yz[i]-sigma_yz[f])/dy;
+            dsigmayydy = (0-sigma_yy[i])/dy;
             };
-
             if (front_bd) {
-            dsigmayydy = (sigma_yy[b]-sigma_yy[i])/dy;
-            dsigmaxydy = (sigma_xy[b]-sigma_xy[i])/dy;
-            dsigmayzdy = (sigma_yz[b]-sigma_yz[i])/dy;
+            dsigmaxydy = (sigma_xy[i]-0)/dy;
+            dsigmayzdy = (sigma_yz[i]-0)/dy;
             };
-
             if (right_bd) {
-            dsigmaxxdx = (sigma_xx[i]-sigma_xx[l])/dx;
-            dsigmaxydx = (sigma_xy[i]-sigma_xy[l])/dx;
-            dsigmaxzdx = (sigma_xz[i]-sigma_xz[l])/dx;
+            dsigmaxxdx = (0-sigma_xx[i])/dx;
+            };
+            if (left_bd) {
+            dsigmaxydx = (sigma_xy[i]-0)/dx;
+            dsigmaxzdx = (sigma_xz[i]-0)/dx;
             };
 
-            if (left_bd) {
-            dsigmaxxdx = (sigma_xx[r]-sigma_xx[i])/dx;
-            dsigmaxydx = (sigma_xy[r]-sigma_xy[i])/dx;
-            dsigmaxzdx = (sigma_xz[r]-sigma_xz[i])/dx;
-            };
 
             float dmxmxdx = (mx[r]*mx[r] - mx[l]*mx[l])/(2*dx);
             float dmymydy = (my[b]*my[b] - my[f]*my[f])/(2*dy);
@@ -190,9 +173,13 @@ class elasto:
             float MEy = B1*dmymydy + B2*(dmxmydx + dmymzdz);
             float MEz = B1*dmzmzdz + B2*(dmxmzdx + dmymzdy);
 
-            float new_vx = vx[i] + (dsigmaxxdx + dsigmaxydy + dsigmaxzdz + MEx)*dt/rho;
-            float new_vy = vy[i] + (dsigmaxydx + dsigmayydy + dsigmayzdz + MEy)*dt/rho;
-            float new_vz = vz[i] + (dsigmaxzdx + dsigmayzdy + dsigmazzdz + MEz)*dt/rho;
+
+            float rho_pos = rho;
+            if (right_bd || back_bd || up_bd) {rho_pos = 10e23;};
+
+            float new_vx = vx[i] + (dsigmaxxdx + dsigmaxydy + dsigmaxzdz + MEx)*dt*2/(rho+rho_pos);
+            float new_vy = vy[i] + (dsigmaxydx + dsigmayydy + dsigmayzdz + MEy)*dt*2/(rho+rho_pos);
+            float new_vz = vz[i] + (dsigmaxzdx + dsigmayzdy + dsigmazzdz + MEz)*dt*2/(rho+rho_pos);
 
             barrier(CLK_GLOBAL_MEM_FENCE);
 
@@ -210,6 +197,7 @@ class elasto:
         __global float *eps_xy,   __global float *eps_yz,   __global float *eps_xz)
 
         {   int i = get_global_id(0);
+
             ''' + self.coord_syst + '''
 
             float dvxdx = (vx[i]-vx[l])/dx;
@@ -224,41 +212,31 @@ class elasto:
             float dvydz = (vy[u]-vy[i])/dz;
             float dvzdz = (vz[i]-vz[d])/dz;
 
+            float small = 10e-23;
+
+
             if (up_bd) {
-            dvxdz = (vx[i]-vx[d])/dz;
-            dvydz = (vy[i]-vy[d])/dz;
-            dvzdz = (vz[i]-vz[d])/dz;
+            dvxdz = (small-vx[i])/dz;
+            dvydz = (small-vy[i])/dz;
             };
-
             if (down_bd) {
-            dvxdz = (vx[u]-vx[i])/dz;
-            dvydz = (vy[u]-vy[i])/dz;
-            dvzdz = (vz[u]-vz[i])/dz;
+            dvzdz = (vz[i]-0)/dz;
             };
-
             if (back_bd) {
-            dvxdy = (vx[i]-vx[f])/dy;
-            dvydy = (vy[i]-vy[f])/dy;
-            dvzdy = (vz[i]-vz[f])/dy;
+            dvxdy = (small-vx[i])/dy;
+            dvzdy = (small-vz[i])/dy;
             };
-
             if (front_bd) {
-            dvxdy = (vx[b]-vx[i])/dy;
-            dvydy = (vy[b]-vy[i])/dy;
-            dvzdy = (vz[b]-vz[i])/dy;
+            dvydy = (vy[i]-small)/dy;
             };
-
             if (right_bd) {
-            dvxdx = (vx[i]-vx[l])/dx;
-            dvydx = (vy[i]-vy[l])/dx;
-            dvzdx = (vz[i]-vz[l])/dx;
+            dvydx = (small-vy[i])/dx;
+            dvzdx = (small-vz[i])/dx;
+            };
+            if (left_bd) {
+            dvxdx = (vx[i]-small)/dx;
             };
 
-            if (left_bd) {
-            dvxdx = (vx[r]-vx[i])/dx;
-            dvydx = (vy[r]-vy[i])/dx;
-            dvzdx = (vz[r]-vz[i])/dx;
-            };
 
             float dsigmaxxdt = c11 * dvxdx + c12 * (dvydy + dvzdz);
             float dsigmayydt = c11 * dvydy + c12 * (dvxdx + dvzdz);
@@ -276,37 +254,13 @@ class elasto:
             float new_sigmaxz = sigma_xz[i] + dsigmaxzdt * dt;
 
             if (down_bd) {
-            new_sigmaxx = c11 * Eps_xx + c12 * (vz[u] * dt / dz + Eps_yy);
-            new_sigmayy = c11 * Eps_yy + c12 * (vz[u] * dt / dz + Eps_xx);
-            new_sigmazz = c11 * vz[u] * dt / dz + c12 * (Eps_xx + Eps_yy);
+            new_sigmaxx = c11 * Eps_xx + c12 * (Eps_yy);
+            new_sigmayy = c11 * Eps_yy + c12 * (Eps_xx);
+            new_sigmazz = c12 * (Eps_xx + Eps_yy);
 
             new_sigmaxy = 0;
             new_sigmayz = 0;
             new_sigmaxz = 0;
-            };
-
-            if (x_bd) {
-            new_sigmaxx = 0;
-            };
-
-            if (y_bd) {
-            new_sigmayy = 0;
-            };
-
-            if (up_bd) {
-            new_sigmazz = 0;
-            };
-
-            if (x_bd || y_bd) {
-            new_sigmaxy = 0;
-            };
-
-            if (x_bd || up_bd) {
-            new_sigmaxz = 0;
-            };
-
-            if (y_bd || up_bd) {
-            new_sigmayz = 0;
             };
 
             barrier(CLK_GLOBAL_MEM_FENCE);
@@ -394,9 +348,6 @@ class elasto:
 
 
     def dynamics(self):
-
-
-
 
         launch = self.prog.update_velocity(self.queue, self.vx.shape, None,
         self.vx_buf,      self.vy_buf,      self.vz_buf,
