@@ -5,11 +5,12 @@ from matplotlib.ticker import MaxNLocator
 
 class elasto:
 
-    def init_data(self,Lx,Ly,Lz,dx,dy,dz,dt,Alpha,c11,c12,c44,rho,Eps_xx,Eps_yy):
-
+    def __init__(self):
         platforms = cl.get_platforms()
         self.ctx = cl.Context(dev_type=cl.device_type.GPU, properties=[(cl.context_properties.PLATFORM, platforms[0])])
         self.queue = cl.CommandQueue(self.ctx)
+
+    def init_data(self,Lx,Ly,Lz,dx,dy,dz,dt,Alpha,c11,c12,c44,rho,Eps_xx,Eps_yy,MAG):
 
         self.Lx = Lx
         self.Ly = Ly
@@ -26,6 +27,7 @@ class elasto:
         self.c44 = c44
         self.rho = rho
         self.Alpha = Alpha
+        self.MAG = MAG
 
         self.coord_syst = '''
 
@@ -56,10 +58,10 @@ class elasto:
         bool pochti_x_bd = pochti_right_bd || pochti_left_bd;
         bool pochti_y_bd = pochti_back_bd  || pochti_front_bd;
 
-        const float dt = '''+str(self.dt)+''';
-        const float dx = '''+str(self.dx)+''';
-        const float dy = '''+str(self.dy)+''';
-        const float dz = '''+str(self.dz)+''';
+        const float dt = '''+str(self.dt)+'''e-18;
+        const float dx = '''+str(self.dx)+'''e-9;
+        const float dy = '''+str(self.dy)+'''e-9;
+        const float dz = '''+str(self.dz)+'''e-9;
         const float dt2 = native_powr(dt, 2);
         const float dx2 = native_powr(dx, 2);
         const float dy2 = native_powr(dy, 2);
@@ -73,14 +75,15 @@ class elasto:
         int d=i-pl;
 
         const float Alpha =    '''+str(self.Alpha)+''';
-        const float c11 =      '''+str(self.c11)+''';
-        const float c12 =      '''+str(self.c12)+''';
-        const float c44 =      '''+str(self.c44)+''';
-        float rho =      '''+str(self.rho)+''';
+        const float c11 =      '''+str(self.c11)+'''e9;
+        const float c12 =      '''+str(self.c12)+'''e9;
+        const float c44 =      '''+str(self.c44)+'''e9;
+        float rho =            '''+str(self.rho)+''';
         const float Eps_xx =   '''+str(self.Eps_xx)+''';
         const float Eps_yy =   '''+str(self.Eps_yy)+''';
-        const float B1 =  0*-2;
-        const float B2 =  0*-1.5;
+        const float Eps_zz = 0*-c12/(c11+c12)*(Eps_xx+Eps_yy);
+        const float B1 =  -2e6;
+        const float B2 =  -1.5e6;
         '''
 
         # OpenCL elastic
@@ -114,14 +117,16 @@ class elasto:
             float dsigmayzdy = (sigma_yz[i]-sigma_yz[f])/dy;
             float dsigmayzdz = (sigma_yz[i]-sigma_yz[d])/dz;
 
+            float small = 1e-23;
+
             if (up_bd) {
             dsigmazzdz = (0-sigma_zz[i])/dz;
 
             };
 
             if (down_bd) {
-            dsigmaxzdz = (sigma_xz[i]-sigma_xz[i])/dz;
-            dsigmayzdz = (sigma_yz[i]-sigma_xz[i])/dz;
+            dsigmaxzdz = (sigma_xz[i]-0)/dz;
+            dsigmayzdz = (sigma_yz[i]-0)/dz;
             };
 
             if (back_bd) {
@@ -140,16 +145,16 @@ class elasto:
             };
 
 
-            float dmxmxdx = (mx[r]*mx[r] - mx[l]*mx[l])/(2*dx);
-            float dmymydy = (my[b]*my[b] - my[f]*my[f])/(2*dy);
-            float dmzmzdz = (mz[u]*mz[u] - mz[d]*mz[d])/(2*dz);
+            float dmxmxdx = (mx[r]*mx[r] - mx[i]*mx[i])/(2*dx);
+            float dmymydy = (my[b]*my[b] - my[i]*my[i])/(2*dy);
+            float dmzmzdz = (mz[u]*mz[u] - mz[i]*mz[i])/(2*dz);
 
-            float dmxmydy = (mx[b]*my[b] - mx[f]*my[f])/(2*dy);
-            float dmxmzdz = (mx[u]*mz[u] - mx[d]*mz[d])/(2*dz);
-            float dmxmydx = (mx[r]*my[r] - mx[l]*my[l])/(2*dx);
-            float dmymzdz = (my[u]*mz[u] - my[d]*mz[d])/(2*dz);
-            float dmxmzdx = (mx[r]*mz[r] - mx[l]*mz[l])/(2*dx);
-            float dmymzdy = (my[b]*mz[b] - my[f]*mz[f])/(2*dy);
+            float dmxmydy = (mx[i]*my[i] - mx[f]*my[f])/(2*dy);
+            float dmxmzdz = (mx[i]*mz[i] - mx[d]*mz[d])/(2*dz);
+            float dmxmydx = (mx[i]*my[i] - mx[l]*my[l])/(2*dx);
+            float dmymzdz = (my[i]*mz[i] - my[d]*mz[d])/(2*dz);
+            float dmxmzdx = (mx[i]*mz[i] - mx[l]*mz[l])/(2*dx);
+            float dmymzdy = (my[i]*mz[i] - my[f]*mz[f])/(2*dy);
 
             if (x_bd) {
             dmxmxdx = 0;
@@ -169,17 +174,35 @@ class elasto:
             dmymzdz = 0;
             };
 
+            if (lx==1) {
+            dsigmaxxdx=0;
+            dsigmaxydx=0;
+            dsigmaxzdx=0;
+            };
+
+            if (ly==1) {
+            dsigmayydy=0;
+            dsigmaxydy=0;
+            dsigmayzdy=0;
+            };
+
+            if (lz==1) {
+
+            dsigmaxzdz=0;
+            dsigmayzdz=0;
+            };
+
             float MEx = B1*dmxmxdx + B2*(dmxmydy + dmxmzdz);
             float MEy = B1*dmymydy + B2*(dmxmydx + dmymzdz);
             float MEz = B1*dmzmzdz + B2*(dmxmzdx + dmymzdy);
 
+            float B = 1/rho;
 
-            float rho_pos = rho;
-            if (right_bd || back_bd || up_bd) {rho_pos = 10e23;};
+            if (x_bd || y_bd || up_bd) {B=0;};
 
-            float new_vx = vx[i] + (dsigmaxxdx + dsigmaxydy + dsigmaxzdz + MEx)*dt*2/(rho+rho_pos);
-            float new_vy = vy[i] + (dsigmaxydx + dsigmayydy + dsigmayzdz + MEy)*dt*2/(rho+rho_pos);
-            float new_vz = vz[i] + (dsigmaxzdx + dsigmayzdy + dsigmazzdz + MEz)*dt*2/(rho+rho_pos);
+            float new_vx = vx[i] + (dsigmaxxdx + dsigmaxydy + dsigmaxzdz - Alpha * vx[i] + MEx)*dt*B;
+            float new_vy = vy[i] + (dsigmaxydx + dsigmayydy + dsigmayzdz - Alpha * vy[i] + MEy)*dt*B;
+            float new_vz = vz[i] + (dsigmaxzdx + dsigmayzdy + dsigmazzdz - Alpha * vz[i] + MEz)*dt*B;
 
             barrier(CLK_GLOBAL_MEM_FENCE);
 
@@ -191,6 +214,7 @@ class elasto:
 
         __kernel void update_strains(
         __global float *vx,       __global float *vy,       __global float *vz,
+        __global float *mx,       __global float *my,       __global float *mz,
         __global float *sigma_xx, __global float *sigma_yy, __global float *sigma_zz,
         __global float *sigma_xy, __global float *sigma_yz, __global float *sigma_xz,
         __global float *eps_xx,   __global float *eps_yy,   __global float *eps_zz,
@@ -237,31 +261,53 @@ class elasto:
             dvxdx = (vx[i]-small)/dx;
             };
 
+            if (lx==1) {
+            dvxdx = 0;
+            dvydx = 0;
+            dvzdx = 0;
+            };
+
+            if (ly==1) {
+            dvxdy = 0;
+            dvydy = 0;
+            dvzdy = 0;
+            };
+
+            if (lz==1) {
+            dvxdz = 0;
+            dvydz = 0;
+            dvzdz = 0;
+            };
+
 
             float dsigmaxxdt = c11 * dvxdx + c12 * (dvydy + dvzdz);
             float dsigmayydt = c11 * dvydy + c12 * (dvxdx + dvzdz);
             float dsigmazzdt = c11 * dvzdz + c12 * (dvydy + dvxdx);
 
+
             float dsigmaxydt = c44 * (dvxdy+dvydx);
             float dsigmayzdt = c44 * (dvzdy+dvydz);
             float dsigmaxzdt = c44 * (dvxdz+dvzdx);
 
-            float new_sigmaxx = sigma_xx[i] + dsigmaxxdt * dt;
-            float new_sigmayy = sigma_yy[i] + dsigmayydt * dt;
-            float new_sigmazz = sigma_zz[i] + dsigmazzdt * dt;
-            float new_sigmaxy = sigma_xy[i] + dsigmaxydt * dt;
-            float new_sigmayz = sigma_yz[i] + dsigmayzdt * dt;
-            float new_sigmaxz = sigma_xz[i] + dsigmaxzdt * dt;
+            float source_xx = 0;
+            float source_yy = 0;
+            float source_zz = 0;
+            float source_xy = 0;
+            float source_yz = 0;
+            float source_xz = 0;
 
             if (down_bd) {
-            new_sigmaxx = c11 * Eps_xx + c12 * (Eps_yy);
-            new_sigmayy = c11 * Eps_yy + c12 * (Eps_xx);
-            new_sigmazz = c12 * (Eps_xx + Eps_yy);
-
-            new_sigmaxy = 0;
-            new_sigmayz = 0;
-            new_sigmaxz = 0;
+            source_xx = c11 * Eps_xx + c12 * (Eps_yy+Eps_zz);
+            source_yy = c11 * Eps_yy + c12 * (Eps_xx+Eps_zz);
+            source_zz = 0*(c11 * Eps_zz + c12 * (Eps_xx+Eps_yy));
             };
+
+            float new_sigmaxx = sigma_xx[i] + (dsigmaxxdt) * dt +source_xx;
+            float new_sigmayy = sigma_yy[i] + (dsigmayydt) * dt +source_yy;
+            float new_sigmazz = sigma_zz[i] + (dsigmazzdt) * dt +source_zz;
+            float new_sigmaxy = sigma_xy[i] + (dsigmaxydt) * dt +source_xy;
+            float new_sigmayz = sigma_yz[i] + (dsigmayzdt) * dt +source_yz;
+            float new_sigmaxz = sigma_xz[i] + (dsigmaxzdt) * dt +source_xz;
 
             barrier(CLK_GLOBAL_MEM_FENCE);
 
@@ -272,12 +318,44 @@ class elasto:
             sigma_yz[i] = new_sigmayz;
             sigma_xz[i] = new_sigmaxz;
 
-            eps_xx[i] = dvxdx * dt;
-            eps_yy[i] = dvydy * dt;
-            eps_zz[i] = dvzdz * dt;
-            eps_xy[i] = (dvxdy + dvydx) / 2 * dt;
-            eps_yz[i] = (dvzdy + dvydz) / 2 * dt;
-            eps_xz[i] = (dvxdz + dvzdx) / 2 * dt;
+            float epsxx = dt * (vx[r]-vx[l])/(2*dx);
+            float epsyy = dt * (vy[b]-vy[f])/(2*dy);
+            float epszz = dt * (vz[u]-vz[d])/(2*dz);
+
+            if (right_bd) {
+            epsxx = dt * (vx[i]-vx[l])/dx;
+            };
+
+            if (left_bd) {
+            epsxx = dt * (vx[r]-vx[i])/dx;
+            };
+
+            if (back_bd) {
+            epsyy = dt * (vy[i]-vy[f])/dy;
+            };
+
+            if (front_bd) {
+            epsyy = dt * (vy[b]-vy[i])/dy;
+            };
+
+            if (up_bd) {
+            epszz = dt * (vz[i]-vz[d])/dz;
+            };
+
+            if (down_bd) {
+            epszz = dt * (vz[u]-vz[i])/dz;
+            };
+
+            if (lz == 1) {
+            epszz = dt * vz[i] / dz;
+            };
+
+            eps_xx[i] = epsxx;
+            eps_yy[i] = epsyy;
+            eps_zz[i] = epszz;
+            eps_xy[i] = 0;
+            eps_yz[i] = 0;
+            eps_xz[i] = 0;
         };
         '''
 
@@ -302,11 +380,17 @@ class elasto:
         self.eps_yz = np.zeros(self.L).astype(np.float32)
         self.eps_xz = np.zeros(self.L).astype(np.float32)
 
-        load = np.load("/home/heisenberg/Desktop/НИР/FM/math/CoFe_DMI/init/helical2100100.npy",allow_pickle=True)
-        load_mag = load[0]
-        Lmx = load_mag[0]
-        Lmy = load_mag[1]
-        Lmz = load_mag[2]
+        if (self.Lx == 100 and self.Ly == 100) and self.MAG == 1:
+            load = np.load("/home/heisenberg/Desktop/НИР/FM/math/CoFe_DMI/init/helical2100100.npy",allow_pickle=True)
+            load_mag = load[0]
+            Lmx = load_mag[0]
+            Lmy = load_mag[1]
+            Lmz = load_mag[2]
+        else:
+            Lmx = np.zeros(self.L).astype(np.float32)
+            Lmy = np.zeros(self.L).astype(np.float32)
+            Lmz = np.zeros(self.L).astype(np.float32)
+
 
         self.mx = np.zeros(self.L).astype(np.float32)
         self.my = np.zeros(self.L).astype(np.float32)
@@ -317,7 +401,7 @@ class elasto:
                 for x in range(Lx):
                     i = z * Lx * Ly + y * Lx + x
 
-                    if z == 1:
+                    if z == 20:
                         self.mx[i] = Lmx[i - Lx*Ly * z]
                         self.my[i] = Lmy[i - Lx*Ly * z]
                         self.mz[i] = Lmz[i - Lx*Ly * z]
@@ -359,6 +443,7 @@ class elasto:
 
         launch = self.prog.update_strains(self.queue, self.vx.shape, None,
         self.vx_buf,      self.vy_buf,      self.vz_buf,
+        self.mx_buf,      self.my_buf,      self.mz_buf,
         self.sigmaxx_buf, self.sigmayy_buf, self.sigmazz_buf,
         self.sigmaxy_buf, self.sigmayz_buf, self.sigmaxz_buf,
         self.eps_xx_buf,  self.eps_yy_buf,  self.eps_zz_buf,
@@ -366,7 +451,9 @@ class elasto:
         launch.wait()
 
 
-    def plot_xy_pl(self, layer, dir, count):
+    def plot_xy_pl(self, layer, file_name):
+
+        self.get_eps()
 
         Lx = self.Lx
         Ly = self.Ly
@@ -377,7 +464,7 @@ class elasto:
 
         Xpos, Ypos = np.meshgrid(np.arange(0, dx * Lx, dx), np.arange(0, dy * Ly, dy))
 
-        pl = np.reshape(self.eps_zz, (Lz, Ly, Lx))[layer]
+        pl = np.reshape(self.eps_xx, (Lz, Ly, Lx))[layer]
         fig, ax = plt.subplots()
         plt.contourf(Xpos, Ypos, pl, cmap=plt.get_cmap('plasma'),
                      levels=MaxNLocator(nbins=100).tick_values(pl.min(), pl.max()))
@@ -386,8 +473,7 @@ class elasto:
         plt.ticklabel_format(useOffset=False)
         plt.tick_params(labelleft=False)
         fig.set_size_inches(15, 15)
-        plt.savefig(dir + "/film/"
-                    + "u" + str(count)  +" layer = " + str(layer) + ".png", dpi=100)
+        plt.savefig(file_name, dpi=100)
         plt.close()
 
     def get_vs(self):
@@ -406,7 +492,9 @@ class elasto:
         cl.enqueue_copy(self.queue, self.eps_xz, self.eps_xz_buf)
 
 
-    def plot_1D_z(self, dir, count):
+    def plot_1D_z(self, file_name):
+
+        self.get_eps()
 
         Lx = self.Lx
         Ly = self.Ly
@@ -442,13 +530,20 @@ class elasto:
         ax.set(xlabel='z coordinate (nm)', ylabel='Mechanical strains (%)')
         ax.grid()
 
-        plt.savefig(dir+"/film/z_strains" + str(count) + ".png", dpi=100)
+        plt.savefig(file_name, dpi=100)
         plt.close()
 
-    def save_data(self, dir, count):
+    def save_eps(self, dir, count):
+        self.get_eps()
         self.eps_xx.astype('float32').tofile(dir + '/TXT/' + str(count) +'eps_xx.dat')
         self.eps_yy.astype('float32').tofile(dir + '/TXT/' + str(count) +'eps_yy.dat')
         self.eps_zz.astype('float32').tofile(dir + '/TXT/' + str(count) +'eps_zz.dat')
         self.eps_xy.astype('float32').tofile(dir + '/TXT/' + str(count) +'eps_xy.dat')
         self.eps_yz.astype('float32').tofile(dir + '/TXT/' + str(count) +'eps_yz.dat')
         self.eps_xz.astype('float32').tofile(dir + '/TXT/' + str(count) +'eps_xz.dat')
+
+    def save_vs(self, dir, count):
+        self.get_vs()
+        self.vx.astype('float32').tofile(dir + '/TXT/' + str(count) +'vx.dat')
+        self.vy.astype('float32').tofile(dir + '/TXT/' + str(count) +'vy.dat')
+        self.vz.astype('float32').tofile(dir + '/TXT/' + str(count) +'vz.dat')
