@@ -6,9 +6,9 @@ from matplotlib.ticker import MaxNLocator
 class elasto:
 
     def __init__(self):
-        platforms = cl.get_platforms()
-        self.ctx = cl.Context(dev_type=cl.device_type.GPU, properties=[(cl.context_properties.PLATFORM, platforms[0])])
+        self.ctx = cl.create_some_context()
         self.queue = cl.CommandQueue(self.ctx)
+
 
     def init_data(self,Lx,Ly,Lz,dx,dy,dz,dt,Alpha,c11,c12,c44,rho,Eps_xx,Eps_yy,MAG):
 
@@ -81,7 +81,6 @@ class elasto:
         float rho =            '''+str(self.rho)+''';
         const float Eps_xx =   '''+str(self.Eps_xx)+''';
         const float Eps_yy =   '''+str(self.Eps_yy)+''';
-        const float Eps_zz = 0*-c12/(c11+c12)*(Eps_xx+Eps_yy);
         const float B1 =  -2e6;
         const float B2 =  -1.5e6;
         '''
@@ -121,29 +120,30 @@ class elasto:
 
             if (up_bd) {
             dsigmazzdz = (0-sigma_zz[i])/dz;
-
             };
 
             if (down_bd) {
-            dsigmaxzdz = (sigma_xz[i]-0)/dz;
-            dsigmayzdz = (sigma_yz[i]-0)/dz;
+            dsigmaxzdz = (sigma_xz[i]-sigma_xz[i])/dz;
+            dsigmayzdz = (sigma_yz[i]-sigma_yz[i])/dz;
             };
 
             if (back_bd) {
             dsigmayydy = (0-sigma_yy[i])/dy;
             };
+
             if (front_bd) {
             dsigmaxydy = (sigma_xy[i]-0)/dy;
             dsigmayzdy = (sigma_yz[i]-0)/dy;
             };
+
             if (right_bd) {
             dsigmaxxdx = (0-sigma_xx[i])/dx;
             };
+
             if (left_bd) {
             dsigmaxydx = (sigma_xy[i]-0)/dx;
             dsigmaxzdx = (sigma_xz[i]-0)/dx;
             };
-
 
             float dmxmxdx = (mx[r]*mx[r] - mx[i]*mx[i])/(2*dx);
             float dmymydy = (my[b]*my[b] - my[i]*my[i])/(2*dy);
@@ -187,7 +187,7 @@ class elasto:
             };
 
             if (lz==1) {
-
+            dsigmazzdz=0;
             dsigmaxzdz=0;
             dsigmayzdz=0;
             };
@@ -196,13 +196,25 @@ class elasto:
             float MEy = B1*dmymydy + B2*(dmxmydx + dmymzdz);
             float MEz = B1*dmzmzdz + B2*(dmxmzdx + dmymzdy);
 
-            float B = 1/rho;
+            float Bx = 1/rho;
+            float By = 1/rho;
+            float Bz = 1/rho;
 
-            if (x_bd || y_bd || up_bd) {B=0;};
+            if ((right_bd && lx > 1)) {
+            Bx=0;
+            };
 
-            float new_vx = vx[i] + (dsigmaxxdx + dsigmaxydy + dsigmaxzdz - Alpha * vx[i] + MEx)*dt*B;
-            float new_vy = vy[i] + (dsigmaxydx + dsigmayydy + dsigmayzdz - Alpha * vy[i] + MEy)*dt*B;
-            float new_vz = vz[i] + (dsigmaxzdx + dsigmayzdy + dsigmazzdz - Alpha * vz[i] + MEz)*dt*B;
+            if ((back_bd && ly > 1)) {
+            By=0;
+            };
+
+            if ((up_bd && lz > 1)) {
+            Bz=0;
+            };
+
+            float new_vx = vx[i] + (dsigmaxxdx + dsigmaxydy + dsigmaxzdz - Alpha * vx[i] + MEx)*dt*Bx;
+            float new_vy = vy[i] + (dsigmaxydx + dsigmayydy + dsigmayzdz - Alpha * vy[i] + MEy)*dt*By;
+            float new_vz = vz[i] + (dsigmaxzdx + dsigmayzdy + dsigmazzdz - Alpha * vz[i] + MEz)*dt*Bz;
 
             barrier(CLK_GLOBAL_MEM_FENCE);
 
@@ -238,13 +250,12 @@ class elasto:
 
             float small = 10e-23;
 
-
             if (up_bd) {
             dvxdz = (small-vx[i])/dz;
             dvydz = (small-vy[i])/dz;
             };
             if (down_bd) {
-            dvzdz = (vz[i]-0)/dz;
+            dvzdz = (vz[i]-vz[i])/dz;
             };
             if (back_bd) {
             dvxdy = (small-vx[i])/dy;
@@ -279,11 +290,9 @@ class elasto:
             dvzdz = 0;
             };
 
-
             float dsigmaxxdt = c11 * dvxdx + c12 * (dvydy + dvzdz);
             float dsigmayydt = c11 * dvydy + c12 * (dvxdx + dvzdz);
             float dsigmazzdt = c11 * dvzdz + c12 * (dvydy + dvxdx);
-
 
             float dsigmaxydt = c44 * (dvxdy+dvydx);
             float dsigmayzdt = c44 * (dvzdy+dvydz);
@@ -297,17 +306,18 @@ class elasto:
             float source_xz = 0;
 
             if (down_bd) {
-            source_xx = c11 * Eps_xx + c12 * (Eps_yy+Eps_zz);
-            source_yy = c11 * Eps_yy + c12 * (Eps_xx+Eps_zz);
-            source_zz = 0*(c11 * Eps_zz + c12 * (Eps_xx+Eps_yy));
+            source_xx += c11 * Eps_xx + c12 * Eps_yy;
+            source_yy += c11 * Eps_yy + c12 * Eps_xx;
+            source_zz += (c12 * (Eps_xx+Eps_yy));
             };
 
-            float new_sigmaxx = sigma_xx[i] + (dsigmaxxdt) * dt +source_xx;
-            float new_sigmayy = sigma_yy[i] + (dsigmayydt) * dt +source_yy;
-            float new_sigmazz = sigma_zz[i] + (dsigmazzdt) * dt +source_zz;
-            float new_sigmaxy = sigma_xy[i] + (dsigmaxydt) * dt +source_xy;
-            float new_sigmayz = sigma_yz[i] + (dsigmayzdt) * dt +source_yz;
-            float new_sigmaxz = sigma_xz[i] + (dsigmaxzdt) * dt +source_xz;
+
+            float new_sigmaxx = sigma_xx[i] + (dsigmaxxdt) * dt + source_xx;
+            float new_sigmayy = sigma_yy[i] + (dsigmayydt) * dt + source_yy;
+            float new_sigmazz = sigma_zz[i] + (dsigmazzdt) * dt + source_zz;
+            float new_sigmaxy = sigma_xy[i] + (dsigmaxydt) * dt + source_xy;
+            float new_sigmayz = sigma_yz[i] + (dsigmayzdt) * dt + source_yz;
+            float new_sigmaxz = sigma_xz[i] + (dsigmaxzdt) * dt + source_xz;
 
             barrier(CLK_GLOBAL_MEM_FENCE);
 
@@ -346,6 +356,14 @@ class elasto:
             epszz = dt * (vz[u]-vz[i])/dz;
             };
 
+            if (lx == 1) {
+            epsxx = dt * vx[i] / dz;
+            };
+
+            if (ly == 1) {
+            epsyy = dt * vy[i] / dz;
+            };
+
             if (lz == 1) {
             epszz = dt * vz[i] / dz;
             };
@@ -381,7 +399,7 @@ class elasto:
         self.eps_xz = np.zeros(self.L).astype(np.float32)
 
         if (self.Lx == 100 and self.Ly == 100) and self.MAG == 1:
-            load = np.load("/home/heisenberg/Desktop/НИР/FM/math/CoFe_DMI/init/helical2100100.npy",allow_pickle=True)
+            load = np.load("/home/neo/Desktop/НИР/FM/math/CoFe_DMI/init/helical2100100.npy",allow_pickle=True)
             load_mag = load[0]
             Lmx = load_mag[0]
             Lmy = load_mag[1]
@@ -401,7 +419,7 @@ class elasto:
                 for x in range(Lx):
                     i = z * Lx * Ly + y * Lx + x
 
-                    if z == 20:
+                    if z == int(Lz/2):
                         self.mx[i] = Lmx[i - Lx*Ly * z]
                         self.my[i] = Lmy[i - Lx*Ly * z]
                         self.mz[i] = Lmz[i - Lx*Ly * z]
@@ -464,7 +482,7 @@ class elasto:
 
         Xpos, Ypos = np.meshgrid(np.arange(0, dx * Lx, dx), np.arange(0, dy * Ly, dy))
 
-        pl = np.reshape(self.eps_xx, (Lz, Ly, Lx))[layer]
+        pl = np.reshape(self.eps_zz, (Lz, Ly, Lx))[layer]
         fig, ax = plt.subplots()
         plt.contourf(Xpos, Ypos, pl, cmap=plt.get_cmap('plasma'),
                      levels=MaxNLocator(nbins=100).tick_values(pl.min(), pl.max()))
@@ -547,3 +565,11 @@ class elasto:
         self.vx.astype('float32').tofile(dir + '/TXT/' + str(count) +'vx.dat')
         self.vy.astype('float32').tofile(dir + '/TXT/' + str(count) +'vy.dat')
         self.vz.astype('float32').tofile(dir + '/TXT/' + str(count) +'vz.dat')
+
+'''
+            float B = 1/rho;
+
+            if ((x_bd && lx > 1) || (y_bd && ly > 1) || (up_bd && lz > 1)) {
+            B=0;
+            };
+'''
