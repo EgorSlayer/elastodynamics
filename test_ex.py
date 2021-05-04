@@ -2,26 +2,26 @@ from elastodynamics_vel import elasto
 
 Lx = 100
 Ly = 100
-Lz = 40
+Lz = 10
 dx = 3.5         #nm
 dy = 3.5         #nm
-dz = 0.25        #nm
-dt = 10**3       #10^-18
-Eps_yy= 0.02
-Eps_xx= 0.02     #Abs deformations at sub
-directory = "/home/heisenberg/Desktop/НИР/ELASTIC/modeling3D"
+dz = 3.5         #nm
+dt = 10000    #10^-18
+Eps_yy= -0.02
+Eps_xx= -0.02     #Abs deformations at sub
+directory = "/home/neo/Desktop/НИР/ELASTIC/modeling3D"
 
-c11 = 10  #GPa
-c12 = 1   #GPa
-c44 = 1   #GPa
-rho = 4000         #kg/m3
-Alpha = 0    #Damping
+c11 = 259  #GPa
+c12 = 154  #GPa
+c44 = 131  #GPa
+rho = 8290 #kg/m3
+Alpha = 10**15    #Damping
 MAG = 0
 el_calc = elasto()
 el_calc.init_data(Lx,Ly,Lz,dx,dy,dz,dt,Alpha,c11,c12,c44,rho,Eps_xx,Eps_yy,MAG)
 
 time = 10**8
-every_print=10**4
+every_print=10**3
 count = 0
 for t in range(time):
 
