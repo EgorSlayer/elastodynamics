@@ -10,6 +10,7 @@ class elasto:
         self.ctx = cl.Context(dev_type=cl.device_type.GPU, properties=[(cl.context_properties.PLATFORM, platforms[0])])
         self.queue = cl.CommandQueue(self.ctx)
 
+
     def init_data(self,Lx,Ly,Lz,dx,dy,dz,dt,Alpha,c11,c12,c44,rho,Eps_xx,Eps_yy,MAG):
 
         self.Lx = Lx
@@ -50,14 +51,6 @@ class elasto:
         bool y_bd = back_bd  || front_bd;
         bool z_bd = up_bd    || down_bd;
 
-        bool pochti_up_bd    = z == lz-2;
-        bool pochti_right_bd = x == lx-2;
-        bool pochti_left_bd  = x == 1;
-        bool pochti_back_bd  = y == ly-2;
-        bool pochti_front_bd = y == 1;
-        bool pochti_x_bd = pochti_right_bd || pochti_left_bd;
-        bool pochti_y_bd = pochti_back_bd  || pochti_front_bd;
-
         const float dt = '''+str(self.dt)+'''e-18;
         const float dx = '''+str(self.dx)+'''e-9;
         const float dy = '''+str(self.dy)+'''e-9;
@@ -66,6 +59,14 @@ class elasto:
         const float dx2 = native_powr(dx, 2);
         const float dy2 = native_powr(dy, 2);
         const float dz2 = native_powr(dz, 2);
+
+        bool pochti_up_bd    = z == lz-2;
+        bool pochti_right_bd = x == lx-2;
+        bool pochti_left_bd  = x == 1;
+        bool pochti_back_bd  = y == ly-2;
+        bool pochti_front_bd = y == 1;
+        bool pochti_x_bd = pochti_right_bd || pochti_left_bd;
+        bool pochti_y_bd = pochti_back_bd  || pochti_front_bd;
 
         int l=i-1;
         int r=i+1;
@@ -81,19 +82,18 @@ class elasto:
         float rho =            '''+str(self.rho)+''';
         const float Eps_xx =   '''+str(self.Eps_xx)+''';
         const float Eps_yy =   '''+str(self.Eps_yy)+''';
-        const float Eps_zz = 0*-c12/(c11+c12)*(Eps_xx+Eps_yy);
+        const float Eps_zz =   -c12/(c11+c12)*'''+str(self.Eps_yy+self.Eps_xx)+''';
         const float B1 =  -2e6;
         const float B2 =  -1.5e6;
+
+        float sigmaxxm = c11 * Eps_xx + c12 * (Eps_zz + Eps_yy);
+        float sigmayym = c11 * Eps_yy + c12 * (Eps_zz + Eps_xx);
+        float sigmazzm = 10e7;
         '''
 
         # OpenCL elastic
 
         self.code_el = '''
-
-        float shift(float pos, float neg) {
-        float res = (pos + neg)/2;
-        return res;
-        }
 
         __kernel void update_velocity(
         __global float *vx,       __global float *vy,       __global float *vz,
@@ -102,6 +102,7 @@ class elasto:
         __global float *sigma_xy, __global float *sigma_yz, __global float *sigma_xz)
 
         {   int i = get_global_id(0);
+
             ''' + self.coord_syst + '''
 
             float dsigmaxxdx = (sigma_xx[r]-sigma_xx[i])/dx;
@@ -120,41 +121,42 @@ class elasto:
             float small = 1e-23;
 
             if (up_bd) {
-            dsigmazzdz = (0-sigma_zz[i])/dz;
-
+            dsigmazzdz = (-sigma_zz[i])/dz;
             };
 
             if (down_bd) {
-            dsigmaxzdz = (sigma_xz[i]-0)/dz;
-            dsigmayzdz = (sigma_yz[i]-0)/dz;
+            dsigmaxzdz = (sigma_xz[i])/dz;
+            dsigmayzdz = (sigma_yz[i])/dz;
             };
 
             if (back_bd) {
-            dsigmayydy = (0-sigma_yy[i])/dy;
+            dsigmayydy = (-sigma_yy[i])/dy;
             };
+
             if (front_bd) {
-            dsigmaxydy = (sigma_xy[i]-0)/dy;
-            dsigmayzdy = (sigma_yz[i]-0)/dy;
+            dsigmaxydy = (sigma_xy[i])/dy;
+            dsigmayzdy = (sigma_yz[i])/dy;
             };
+
             if (right_bd) {
-            dsigmaxxdx = (0-sigma_xx[i])/dx;
+            dsigmaxxdx = (-sigma_xx[i])/dx;
             };
+
             if (left_bd) {
-            dsigmaxydx = (sigma_xy[i]-0)/dx;
-            dsigmaxzdx = (sigma_xz[i]-0)/dx;
+            dsigmaxydx = (sigma_xy[i])/dx;
+            dsigmaxzdx = (sigma_xz[i])/dx;
             };
 
+            float dmxmxdx = (mx[r]*mx[r] - mx[i]*mx[i])/(dx);
+            float dmymydy = (my[b]*my[b] - my[i]*my[i])/(dy);
+            float dmzmzdz = (mz[u]*mz[u] - mz[i]*mz[i])/(dz);
 
-            float dmxmxdx = (mx[r]*mx[r] - mx[i]*mx[i])/(2*dx);
-            float dmymydy = (my[b]*my[b] - my[i]*my[i])/(2*dy);
-            float dmzmzdz = (mz[u]*mz[u] - mz[i]*mz[i])/(2*dz);
-
-            float dmxmydy = (mx[i]*my[i] - mx[f]*my[f])/(2*dy);
-            float dmxmzdz = (mx[i]*mz[i] - mx[d]*mz[d])/(2*dz);
-            float dmxmydx = (mx[i]*my[i] - mx[l]*my[l])/(2*dx);
-            float dmymzdz = (my[i]*mz[i] - my[d]*mz[d])/(2*dz);
-            float dmxmzdx = (mx[i]*mz[i] - mx[l]*mz[l])/(2*dx);
-            float dmymzdy = (my[i]*mz[i] - my[f]*mz[f])/(2*dy);
+            float dmxmydy = (mx[i]*my[i] - mx[f]*my[f])/(dy);
+            float dmxmzdz = (mx[i]*mz[i] - mx[d]*mz[d])/(dz);
+            float dmxmydx = (mx[i]*my[i] - mx[l]*my[l])/(dx);
+            float dmymzdz = (my[i]*mz[i] - my[d]*mz[d])/(dz);
+            float dmxmzdx = (mx[i]*mz[i] - mx[l]*mz[l])/(dx);
+            float dmymzdy = (my[i]*mz[i] - my[f]*mz[f])/(dy);
 
             if (x_bd) {
             dmxmxdx = 0;
@@ -186,23 +188,71 @@ class elasto:
             dsigmayzdy=0;
             };
 
-            if (lz==1) {
-
-            dsigmaxzdz=0;
-            dsigmayzdz=0;
-            };
+            //if (lz==1) {
+            //dsigmazzdz=0;
+            //dsigmaxzdz=0;
+            //dsigmayzdz=0;
+            //};
 
             float MEx = B1*dmxmxdx + B2*(dmxmydy + dmxmzdz);
             float MEy = B1*dmymydy + B2*(dmxmydx + dmymzdz);
             float MEz = B1*dmzmzdz + B2*(dmxmzdx + dmymzdy);
 
-            float B = 1/rho;
+            float Bx = 1/rho;
+            float By = 1/rho;
+            float Bz = 1/rho;
 
-            if (x_bd || y_bd || up_bd) {B=0;};
+            if ((x_bd && lx > 1) || (y_bd && ly > 1) || ((z_bd && lz > 1)))  {
+            Bx=small;
+            By=small;
+            Bz=small;
+            };
 
-            float new_vx = vx[i] + (dsigmaxxdx + dsigmaxydy + dsigmaxzdz - Alpha * vx[i] + MEx)*dt*B;
-            float new_vy = vy[i] + (dsigmaxydx + dsigmayydy + dsigmayzdz - Alpha * vy[i] + MEy)*dt*B;
-            float new_vz = vz[i] + (dsigmaxzdx + dsigmayzdy + dsigmazzdz - Alpha * vz[i] + MEz)*dt*B;
+            float fx = 0;
+            float fy = 0;
+            float fz = 0;
+
+            /*
+            if (right_bd){
+            fx = -sigmaxxm/dx;
+            };
+
+            if (left_bd){
+            fx = sigmaxxm/dx;
+            };
+
+            if (back_bd){
+            fy = -sigmayym/dy;
+            };
+
+            if (front_bd){
+            fy = sigmayym/dy;
+            };
+
+            if (down_bd) {
+            fz = sigmazzm/dz;
+            };
+
+            if (up_bd) {
+            fz = -sigmazzm/dz;
+            };
+            */
+
+            if (down_bd) {
+            fz = sigmazzm/dz;
+            };
+
+            if (up_bd) {
+            fz = -sigmazzm/dz;
+            };
+
+            float new_vx = vx[i] + (dsigmaxxdx + dsigmaxydy + dsigmaxzdz - Alpha * vx[i] + MEx + fx)*dt*Bx;
+            float new_vy = vy[i] + (dsigmaxydx + dsigmayydy + dsigmayzdz - Alpha * vy[i] + MEy + fy)*dt*By;
+            float new_vz = vz[i] + (dsigmaxzdx + dsigmayzdy + dsigmazzdz - Alpha * vz[i] + MEz + fz)*dt*Bz;
+
+            if (z_bd) {
+            new_vz = 0;
+            }
 
             barrier(CLK_GLOBAL_MEM_FENCE);
 
@@ -238,13 +288,12 @@ class elasto:
 
             float small = 10e-23;
 
-
             if (up_bd) {
             dvxdz = (small-vx[i])/dz;
             dvydz = (small-vy[i])/dz;
             };
             if (down_bd) {
-            dvzdz = (vz[i]-0)/dz;
+            dvzdz = (vz[i])/dz;
             };
             if (back_bd) {
             dvxdy = (small-vx[i])/dy;
@@ -273,41 +322,38 @@ class elasto:
             dvzdy = 0;
             };
 
-            if (lz==1) {
-            dvxdz = 0;
-            dvydz = 0;
-            dvzdz = 0;
-            };
-
+            //if (lz==1) {
+            //dvxdz = 0;
+            //dvydz = 0;
+            //dvzdz = 0;
+            //};
 
             float dsigmaxxdt = c11 * dvxdx + c12 * (dvydy + dvzdz);
             float dsigmayydt = c11 * dvydy + c12 * (dvxdx + dvzdz);
             float dsigmazzdt = c11 * dvzdz + c12 * (dvydy + dvxdx);
 
-
             float dsigmaxydt = c44 * (dvxdy+dvydx);
             float dsigmayzdt = c44 * (dvzdy+dvydz);
             float dsigmaxzdt = c44 * (dvxdz+dvzdx);
 
-            float source_xx = 0;
-            float source_yy = 0;
-            float source_zz = 0;
-            float source_xy = 0;
-            float source_yz = 0;
-            float source_xz = 0;
+            float new_sigmaxx = sigma_xx[i] + dsigmaxxdt * dt;
+            float new_sigmayy = sigma_yy[i] + dsigmayydt * dt;
+            float new_sigmazz = sigma_zz[i] + dsigmazzdt * dt;
+            float new_sigmaxy = sigma_xy[i] + dsigmaxydt * dt;
+            float new_sigmayz = sigma_yz[i] + dsigmayzdt * dt;
+            float new_sigmaxz = sigma_xz[i] + dsigmaxzdt * dt;
 
-            if (down_bd) {
-            source_xx = c11 * Eps_xx + c12 * (Eps_yy+Eps_zz);
-            source_yy = c11 * Eps_yy + c12 * (Eps_xx+Eps_zz);
-            source_zz = 0*(c11 * Eps_zz + c12 * (Eps_xx+Eps_yy));
+            if (up_bd) {
+            new_sigmazz = sigmazzm;
+            new_sigmayz = 0;
+            new_sigmaxz = 0;
             };
 
-            float new_sigmaxx = sigma_xx[i] + (dsigmaxxdt) * dt +source_xx;
-            float new_sigmayy = sigma_yy[i] + (dsigmayydt) * dt +source_yy;
-            float new_sigmazz = sigma_zz[i] + (dsigmazzdt) * dt +source_zz;
-            float new_sigmaxy = sigma_xy[i] + (dsigmaxydt) * dt +source_xy;
-            float new_sigmayz = sigma_yz[i] + (dsigmayzdt) * dt +source_yz;
-            float new_sigmaxz = sigma_xz[i] + (dsigmaxzdt) * dt +source_xz;
+            if (down_bd) {
+            new_sigmazz = sigmazzm;
+            new_sigmayz = 0;
+            new_sigmaxz = 0;
+            };
 
             barrier(CLK_GLOBAL_MEM_FENCE);
 
@@ -318,37 +364,9 @@ class elasto:
             sigma_yz[i] = new_sigmayz;
             sigma_xz[i] = new_sigmaxz;
 
-            float epsxx = dt * (vx[r]-vx[l])/(2*dx);
-            float epsyy = dt * (vy[b]-vy[f])/(2*dy);
-            float epszz = dt * (vz[u]-vz[d])/(2*dz);
-
-            if (right_bd) {
-            epsxx = dt * (vx[i]-vx[l])/dx;
-            };
-
-            if (left_bd) {
-            epsxx = dt * (vx[r]-vx[i])/dx;
-            };
-
-            if (back_bd) {
-            epsyy = dt * (vy[i]-vy[f])/dy;
-            };
-
-            if (front_bd) {
-            epsyy = dt * (vy[b]-vy[i])/dy;
-            };
-
-            if (up_bd) {
-            epszz = dt * (vz[i]-vz[d])/dz;
-            };
-
-            if (down_bd) {
-            epszz = dt * (vz[u]-vz[i])/dz;
-            };
-
-            if (lz == 1) {
-            epszz = dt * vz[i] / dz;
-            };
+            float epsxx = ((c11 + c12)*sigma_xx[i]-c12*(sigma_zz[i] + sigma_yy[i]))/((c11 - c12)*(c11 + 2*c12));
+            float epsyy = ((c11 + c12)*sigma_yy[i]-c12*(sigma_xx[i] + sigma_zz[i]))/((c11 - c12)*(c11 + 2*c12));
+            float epszz = ((c11 + c12)*sigma_zz[i]-c12*(sigma_xx[i] + sigma_yy[i]))/((c11 - c12)*(c11 + 2*c12));
 
             eps_xx[i] = epsxx;
             eps_yy[i] = epsyy;
@@ -401,7 +419,7 @@ class elasto:
                 for x in range(Lx):
                     i = z * Lx * Ly + y * Lx + x
 
-                    if z == 20:
+                    if z == int(Lz/2):
                         self.mx[i] = Lmx[i - Lx*Ly * z]
                         self.my[i] = Lmy[i - Lx*Ly * z]
                         self.mz[i] = Lmz[i - Lx*Ly * z]
@@ -451,7 +469,7 @@ class elasto:
         launch.wait()
 
 
-    def plot_xy_pl(self, layer, file_name):
+    def plot_xy_pl(self, stringer, layer, file_name):
 
         self.get_eps()
 
@@ -464,16 +482,97 @@ class elasto:
 
         Xpos, Ypos = np.meshgrid(np.arange(0, dx * Lx, dx), np.arange(0, dy * Ly, dy))
 
-        pl = np.reshape(self.eps_xx, (Lz, Ly, Lx))[layer]
+        if stringer == 'eps_xx':
+            a = self.eps_xx
+            lab = "$\epsilon_{xx}$"
+        elif stringer == 'eps_yy':
+            a = self.eps_yy
+            lab = "$\epsilon_{yy}$"
+        elif stringer == 'eps_zz':
+            a = self.eps_zz
+            lab = "$\epsilon_{zz}$"
+
+        pl = np.reshape(a, (Lz, Ly, Lx))[layer]
         fig, ax = plt.subplots()
         plt.contourf(Xpos, Ypos, pl, cmap=plt.get_cmap('plasma'),
                      levels=MaxNLocator(nbins=100).tick_values(pl.min(), pl.max()))
-        plt.colorbar(label=r"uxx", format='%.20f')
+        plt.colorbar(label=lab, format='%.20f')
         ax.set_aspect('equal', 'box')
         plt.ticklabel_format(useOffset=False)
         plt.tick_params(labelleft=False)
         fig.set_size_inches(15, 15)
         plt.savefig(file_name, dpi=100)
+        plt.close()
+
+    def plot_1D_xy(self, file_name, point, layer):
+
+        self.get_eps()
+
+        Lx = self.Lx
+        Ly = self.Ly
+        Lz = self.Lz
+
+        dx = self.dx
+        dy = self.dy
+        dz = self.dz
+
+        a1 = 100*np.reshape(self.eps_xx, (Lz, Ly, Lx))
+        a2 = 100*np.reshape(self.eps_yy, (Lz, Ly, Lx))
+        a3 = 100*np.reshape(self.eps_zz, (Lz, Ly, Lx))
+
+        pl1 = []
+        pl2 = []
+        pl3 = []
+
+        z = layer
+        x = point[0]
+
+        for y in range(Ly):
+            pl1.append(a1[z][y][x])
+            pl2.append(a2[z][y][x])
+            pl3.append(a3[z][y][x])
+
+        pl1 = np.array(pl1)
+        pl2 = np.array(pl2)
+        pl3 = np.array(pl3)
+
+        fig, ax = plt.subplots()
+        t = np.arange(0, dy * Ly, dy)
+        ax.plot(t, pl1,"b",   label="$\epsilon_{xx}$")
+        ax.plot(t, pl2,"r--", label="$\epsilon_{yy}$")
+        ax.plot(t, pl3, "g",  label="$\epsilon_{zz}$")
+        ax.legend(loc='lower left')
+        ax.set(xlabel='y coordinate (nm)', ylabel='Mechanical strains (%)')
+        ax.grid()
+
+        plt.savefig(file_name + "y.png", dpi=100)
+        plt.close()
+
+        pl1 = []
+        pl2 = []
+        pl3 = []
+
+        y = point[1]
+
+        for x in range(Lx):
+            pl1.append(a1[z][y][x])
+            pl2.append(a2[z][y][x])
+            pl3.append(a3[z][y][x])
+
+        pl1 = np.array(pl1)
+        pl2 = np.array(pl2)
+        pl3 = np.array(pl3)
+
+        fig, ax = plt.subplots()
+        t = np.arange(0, dx * Lx, dx)
+        ax.plot(t, pl1,"b",   label="$\epsilon_{xx}$")
+        ax.plot(t, pl2,"r--", label="$\epsilon_{yy}$")
+        ax.plot(t, pl3, "g",  label="$\epsilon_{zz}$")
+        ax.legend(loc='lower left')
+        ax.set(xlabel='x coordinate (nm)', ylabel='Mechanical strains (%)')
+        ax.grid()
+
+        plt.savefig(file_name + "x.png", dpi=100)
         plt.close()
 
     def get_vs(self):
@@ -512,7 +611,7 @@ class elasto:
 
         x = int(Lx/2)
         y = int(Ly/2)
-        for z in range(Lz):
+        for z in range(0,Lz,1):
             pl1.append(a1[z][y][x]*10**2)
             pl2.append(a2[z][y][x]*10**2)
             pl3.append(a3[z][y][x]*10**2)
@@ -547,3 +646,113 @@ class elasto:
         self.vx.astype('float32').tofile(dir + '/TXT/' + str(count) +'vx.dat')
         self.vy.astype('float32').tofile(dir + '/TXT/' + str(count) +'vy.dat')
         self.vz.astype('float32').tofile(dir + '/TXT/' + str(count) +'vz.dat')
+
+'''
+            float B = 1/rho;
+
+            if ((x_bd && lx > 1) || (y_bd && ly > 1) || (up_bd && lz > 1)) {
+            B=0;
+            };
+
+            if (down_bd) {
+            source_xx += c11 * Eps_xx + c12 * Eps_yy;
+            source_yy += c11 * Eps_yy + c12 * Eps_xx;
+            source_zz += c12 * (Eps_yy+Eps_xx);
+            };
+
+           float rc44 = c44;
+           float bc44 = c44;
+           float uc44 = c44;
+
+           float brc44 = c44;
+           float urc44 = c44;
+           float ubc44 = c44;
+
+           if (right_bd) {
+           rc44 = small;
+           brc44 = small;
+           urc44 = small;
+           };
+
+           if (back_bd) {
+           bc44 = small;
+           brc44 = small;
+           ubc44 = small;
+           };
+
+           if (up_bd) {
+           uc44 = small;
+           urc44 = small;
+           ubc44 = small;
+           };
+
+           float muxy = 4/(1/c44+1/rc44+1/bc44+1/brc44);
+           float muyz = 4/(1/c44+1/uc44+1/bc44+1/ubc44);
+           float muxz = 4/(1/c44+1/rc44+1/uc44+1/urc44);
+
+           if (right_bd) {
+            epsxx = dt * (vx[i]-vx[l])/dx;
+            };
+
+            if (left_bd) {
+            epsxx = dt * (vx[r]-vx[i])/dx;
+            };
+
+            if (back_bd) {
+            epsyy = dt * (vy[i]-vy[f])/dy;
+            };
+
+            if (front_bd) {
+            epsyy = dt * (vy[b]-vy[i])/dy;
+            };
+
+            if (up_bd) {
+            epszz = dt * (vz[i]-vz[d])/dz;
+            };
+
+            if (down_bd) {
+            epszz = dt * (vz[u]-vz[i])/dz;
+            };
+
+            if (lx == 1) {
+            epsxx = dt * vx[i] / dx;
+            };
+
+            if (ly == 1) {
+            epsyy = dt * vy[i] / dy;
+            };
+
+            if (lz == 1) {
+            epszz = dt * vz[i] / dz;
+            };
+
+
+            if (down_bd) {
+            new_sigmaxx = c11 * Eps_xx + c12 * Eps_yy;
+            new_sigmayy = c11 * Eps_yy + c12 * Eps_xx;
+            new_sigmazz = c12 * (Eps_xx + Eps_yy);
+            new_sigmaxy = 0;
+            new_sigmayz = 0;
+            new_sigmaxz = 0;
+            }
+
+
+            float epsxx = ((c11 + c12)*sigma_xx[i]-c12*(sigma_zz[i] + sigma_yy[i]))/((c11 - c12)*(c11 + 2*c12));
+            float epsyy = ((c11 + c12)*sigma_yy[i]-c12*(sigma_xx[i] + sigma_zz[i]))/((c11 - c12)*(c11 + 2*c12));
+            float epszz = ((c11 + c12)*sigma_zz[i]-c12*(sigma_xx[i] + sigma_yy[i]))/((c11 - c12)*(c11 + 2*c12));
+
+            float epsxx = sigma_xx[i];
+            float epsyy = sigma_yy[i];
+            float epszz = sigma_zz[i];
+
+
+            if (down_bd) {
+            new_sigmaxx = c11 * Eps_xx + c12 * (Eps_yy + Eps_zz);
+            new_sigmayy = c11 * Eps_yy + c12 * (Eps_xx + Eps_zz);
+            new_sigmazz = c11 * Eps_zz + c12 * (Eps_xx + Eps_yy);
+            new_sigmaxy = 0;
+            new_sigmayz = 0;
+            new_sigmaxz = 0;
+            };
+
+'''
