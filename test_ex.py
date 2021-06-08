@@ -1,24 +1,35 @@
 from elastodynamics_vel import elasto
 
-Lx = 300
-Ly = 300
-Lz = 5
+Lx = 100
+Ly = 100
+Lz = 40
 dx = 1         #nm
-dy = 1         #nm
-dz = 1         #nm
+dy = 1        #nm
+dz = 1           #nm
 dt = 10**4       #10^-18
-Eps_yy= 0.01
-Eps_xx= 0.01    #Abs deformations at sub
+Eps_yy= 0.05
+Eps_xx= 0.05
+Eps_zz= 0.0      #Abs deformations at sub
 directory = "/home/heisenberg/Desktop/НИР/ELASTIC/modeling3D"
 
-c11 = 259   #GPa
-c12 = 154   #GPa
-c44 = 131   #GPa
+c11 = 259 * 10**9  #Pa
+c12 = 154 * 10**9  #Pa
+c44 = 131 * 10**9  #Pa
 rho = 8290         #kg/m3
-Alpha = 10**15    #Damping
-MAG = 0
+Alpha = 10**15     #Damping
+MAG = 1
+
+
 el_calc = elasto()
-el_calc.init_data(Lx,Ly,Lz,dx,dy,dz,dt,Alpha,c11,c12,c44,rho,Eps_xx,Eps_yy,MAG)
+el_calc.init_boundaries(R_BD = 'Free', L_BD = 'Free',
+                        B_BD = 'Free', F_BD = 'Free',
+                        U_BD = 'Free',
+                        D_BD = [c11 * Eps_xx + c12 * (Eps_yy + Eps_zz),
+                                c11 * Eps_yy + c12 * (Eps_xx + Eps_zz),
+                                c11 * Eps_zz + c12 * (Eps_yy + Eps_xx),
+                                0,0,0])
+el_calc.init_data(Lx,Ly,Lz,dx,dy,dz,dt,Alpha,c11,c12,c44,rho,MAG)
+
 
 time = 10**8
 every_print=10**4
