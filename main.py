@@ -11,7 +11,16 @@ class elasto:
         self.queue = cl.CommandQueue(self.ctx)
 
 
-    def init_data(self,Lx,Ly,Lz,dx,dy,dz,dt,Alpha,c11,c12,c44,rho,Eps_xx,Eps_yy,MAG):
+    def init_boundaries(self, R_BD, L_BD, B_BD, F_BD, U_BD, D_BD):
+
+        self.R_BD = R_BD
+        self.L_BD = L_BD
+        self.B_BD = B_BD
+        self.F_BD = F_BD
+        self.U_BD = U_BD
+        self.D_BD = D_BD
+
+    def init_data(self,Lx,Ly,Lz,dx,dy,dz,dt,Alpha,c11,c12,c44,rho,MAG):
 
         self.Lx = Lx
         self.Ly = Ly
@@ -21,8 +30,6 @@ class elasto:
         self.dy = dy
         self.dz = dz
         self.dt = dt
-        self.Eps_xx = Eps_xx
-        self.Eps_yy = Eps_yy
         self.c11 = c11
         self.c12 = c12
         self.c44 = c44
@@ -61,12 +68,14 @@ class elasto:
         const float dz2 = native_powr(dz, 2);
 
         bool pochti_up_bd    = z == lz-2;
+        bool pochti_down_bd  = z == 1;
         bool pochti_right_bd = x == lx-2;
         bool pochti_left_bd  = x == 1;
         bool pochti_back_bd  = y == ly-2;
         bool pochti_front_bd = y == 1;
         bool pochti_x_bd = pochti_right_bd || pochti_left_bd;
         bool pochti_y_bd = pochti_back_bd  || pochti_front_bd;
+        bool pochti_z_bd = pochti_up_bd    || pochti_down_bd;
 
         int l=i-1;
         int r=i+1;
@@ -76,20 +85,284 @@ class elasto:
         int d=i-pl;
 
         const float Alpha =    '''+str(self.Alpha)+''';
-        const float c11 =      '''+str(self.c11)+'''e9;
-        const float c12 =      '''+str(self.c12)+'''e9;
-        const float c44 =      '''+str(self.c44)+'''e9;
+        const float c11 =      '''+str(self.c11)+''';
+        const float c12 =      '''+str(self.c12)+''';
+        const float c44 =      '''+str(self.c44)+''';
         float rho =            '''+str(self.rho)+''';
-        const float Eps_xx =   '''+str(self.Eps_xx)+''';
-        const float Eps_yy =   '''+str(self.Eps_yy)+''';
-        const float Eps_zz =   -c12/(c11+c12)*'''+str(self.Eps_yy+self.Eps_xx)+''';
+
         const float B1 =  -2e6;
         const float B2 =  -1.5e6;
 
-        float sigmaxxm = c11 * Eps_xx + c12 * (Eps_zz + Eps_yy);
-        float sigmayym = c11 * Eps_yy + c12 * (Eps_zz + Eps_xx);
-        float sigmazzm = 10e7;
+        const float small = 0;
+        const float big = 1/small;
+        const float rho_vac = 1;
+
+        float reciep_rho = rho;
+
+        if (x_bd || y_bd || z_bd) {
+        reciep_rho = (18*rho + 9*rho_vac)/27;
+        };
+
+        if ((x_bd && y_bd) || (x_bd && z_bd) || (z_bd && y_bd)) {
+        reciep_rho = (12*rho + 15*rho_vac)/27;
+        };
+
+        if (x_bd && y_bd && z_bd && y_bd) {
+        reciep_rho = (8*rho + 19*rho_vac)/27;
+        };
+
+        reciep_rho = rho;
+
+        float sigmaxx_bd =NAN;
+        float sigmayy_bd =NAN;
+        float sigmazz_bd =NAN;
+        float sigmaxz_bd =NAN;
+        float sigmaxy_bd =NAN;
+        float sigmayz_bd =NAN;
+
+        float vx_bd =NAN;
+        float vy_bd =NAN;
+        float vz_bd =NAN;
+
         '''
+
+        # boundaries for vel update
+
+        self.bd_code_vel = '''
+        //if (lx==1) {
+        //dsigmaxxdx=0;
+        //dsigmaxydx=0;
+        //dsigmaxzdx=0;
+        //};
+
+        //if (ly==1) {
+        //dsigmayydy=0;
+        //dsigmaxydy=0;
+        //dsigmayzdy=0;
+        //};
+
+        //if (lz==1) {
+        //dsigmazzdz=0;
+        //dsigmaxzdz=0;
+        //dsigmayzdz=0;
+        //};
+        '''
+
+        # boundaries for strain update
+
+        self.bd_code_str = '''
+        //if (lx==1) {
+        //dvxdx=0;
+        //dvydx=0;
+        //dvzdx=0;
+        //};
+
+        //if (ly==1) {
+        //dvydy=0;
+        //dvydy=0;
+        //dvzdy=0;
+        //};
+
+        //if (lz==1) {
+        //dvzdz=0;
+        //dvzdz=0;
+        //dvzdz=0;
+        //};
+        '''
+
+
+
+        if self.R_BD == 'Free':
+
+            self.bd_code_vel += '''
+            if (right_bd) {
+            dsigmaxxdx = (-sigma_xx[i])/dx;
+            };
+            '''
+
+            self.bd_code_str += '''
+
+            if (right_bd) {
+            dvxdx = -c12/c11*(dvydy+dvzdz);
+            dvydx = -dvxdy;
+            dvzdx = -dvxdz;
+            }
+
+            if (right_bd) {
+            sigmaxx_bd = 0;
+            sigmaxy_bd = 0;
+            sigmaxz_bd = 0;
+            }
+
+            '''
+
+        if self.L_BD == 'Free':
+
+            self.bd_code_vel += '''
+            if (left_bd) {
+            dsigmaxydx = (sigma_xy[i])/dx;
+            dsigmaxzdx = (sigma_xz[i])/dx;
+            };
+            '''
+
+            self.bd_code_str += '''
+
+            if (left_bd) {
+            dvxdx = -c12/c11*(dvydy+dvzdz);
+            dvydx = -dvxdy;
+            dvzdx = -dvxdz;
+            }
+
+            if (left_bd) {
+            sigmaxx_bd = 0;
+            sigmaxy_bd = 0;
+            sigmaxz_bd = 0;
+            }
+
+            '''
+
+        if self.B_BD == 'Free':
+
+            self.bd_code_vel += '''
+            if (back_bd) {
+            dsigmayydy = (-sigma_yy[i])/dy;
+            };
+            '''
+
+            self.bd_code_str += '''
+            if (back_bd) {
+            dvydy = -c12/c11*(dvxdx+dvzdz);
+            dvxdy = -dvydx;
+            dvzdy = -dvzdz;
+            }
+
+            if (back_bd) {
+            sigmayy_bd = 0;
+            sigmaxy_bd = 0;
+            sigmayz_bd = 0;
+            }
+            '''
+
+        if self.F_BD == 'Free':
+
+            self.bd_code_vel += '''
+            if (front_bd) {
+            dsigmaxydy = (sigma_xy[i])/dy;
+            dsigmayzdy = (sigma_yz[i])/dy;
+            }
+            '''
+
+            self.bd_code_str += '''
+            if (front_bd) {
+            dvydy = -c12/c11*(dvxdx+dvzdz);
+            dvxdy = -dvydx;
+            dvzdy = -dvzdz;
+            }
+
+            if (front_bd) {
+            sigmayy_bd = 0;
+            sigmaxy_bd = 0;
+            sigmayz_bd = 0;
+            }
+            '''
+
+        if self.U_BD == 'Free':
+
+            self.bd_code_vel += '''
+            if (up_bd) {
+            dsigmazzdz = (-sigma_zz[i])/dz;
+            }
+            '''
+
+            self.bd_code_str += '''
+            if (up_bd) {
+            dvzdz = -c12/c11*(dvxdx+dvydy);
+            dvxdz = -dvzdx;
+            dvydz = -dvzdy;
+            }
+
+            if (up_bd) {
+            sigmazz_bd = 0;
+            sigmaxz_bd = 0;
+            sigmayz_bd = 0;
+            }
+            '''
+
+        if self.D_BD == 'Free':
+
+            self.bd_code_vel += '''
+            if (down_bd) {
+            dsigmaxzdx = (sigma_xz[i])/dz;
+            dsigmayzdz = (sigma_yz[i])/dz;
+            };
+            '''
+
+            self.bd_code_str += '''
+            if (down_bd) {
+            dvzdz = -c12/c11*(dvxdx+dvydy);
+            dvxdz = -dvzdx;
+            dvydz = -dvzdy;
+            }
+
+            if (down_bd) {
+            sigmazz_bd = 0;
+            sigmaxz_bd = 0;
+            sigmayz_bd = 0;
+            }
+            '''
+        else:
+
+
+            self.bd_code_str += '''
+
+            if (down_bd) {
+            sigmaxx_bd = '''+str(self.D_BD[0])+''';
+            sigmayy_bd = '''+str(self.D_BD[1])+''';
+            sigmazz_bd = '''+str(self.D_BD[2])+''';
+            sigmaxy_bd = '''+str(self.D_BD[3])+''';
+            sigmayz_bd = '''+str(self.D_BD[4])+''';
+            sigmaxz_bd = '''+str(self.D_BD[5])+''';
+            }
+            '''
+
+        # Magnetostriction
+
+        self.mgstr_code = '''
+        float dmxmxdx = (mx[r]*mx[r] - mx[i]*mx[i])/(dx);
+        float dmymydy = (my[b]*my[b] - my[i]*my[i])/(dy);
+        float dmzmzdz = (mz[u]*mz[u] - mz[i]*mz[i])/(dz);
+
+        float dmxmydy = (mx[i]*my[i] - mx[f]*my[f])/(dy);
+        float dmxmzdz = (mx[i]*mz[i] - mx[d]*mz[d])/(dz);
+        float dmxmydx = (mx[i]*my[i] - mx[l]*my[l])/(dx);
+        float dmymzdz = (my[i]*mz[i] - my[d]*mz[d])/(dz);
+        float dmxmzdx = (mx[i]*mz[i] - mx[l]*mz[l])/(dx);
+        float dmymzdy = (my[i]*mz[i] - my[f]*mz[f])/(dy);
+
+        if (x_bd) {
+        dmxmxdx = 0;
+        dmxmydx = 0;
+        dmxmzdx = 0;
+        };
+
+        if (y_bd) {
+        dmymydy = 0;
+        dmxmydy = 0;
+        dmymzdy = 0;
+        };
+
+        if (z_bd) {
+        dmzmzdz = 0;
+        dmxmzdz = 0;
+        dmymzdz = 0;
+        };
+
+        float MEx = B1*dmxmxdx + B2*(dmxmydy + dmxmzdz);
+        float MEy = B1*dmymydy + B2*(dmxmydx + dmymzdz);
+        float MEz = B1*dmzmzdz + B2*(dmxmzdx + dmymzdy);
+        '''
+
+
 
         # OpenCL elastic
 
@@ -118,141 +391,27 @@ class elasto:
             float dsigmayzdy = (sigma_yz[i]-sigma_yz[f])/dy;
             float dsigmayzdz = (sigma_yz[i]-sigma_yz[d])/dz;
 
-            float small = 1e-23;
-
-            if (up_bd) {
-            dsigmazzdz = (-sigma_zz[i])/dz;
-            };
-
-            if (down_bd) {
-            dsigmaxzdz = (sigma_xz[i])/dz;
-            dsigmayzdz = (sigma_yz[i])/dz;
-            };
-
-            if (back_bd) {
-            dsigmayydy = (-sigma_yy[i])/dy;
-            };
-
-            if (front_bd) {
-            dsigmaxydy = (sigma_xy[i])/dy;
-            dsigmayzdy = (sigma_yz[i])/dy;
-            };
-
-            if (right_bd) {
-            dsigmaxxdx = (-sigma_xx[i])/dx;
-            };
-
-            if (left_bd) {
-            dsigmaxydx = (sigma_xy[i])/dx;
-            dsigmaxzdx = (sigma_xz[i])/dx;
-            };
-
-            float dmxmxdx = (mx[r]*mx[r] - mx[i]*mx[i])/(dx);
-            float dmymydy = (my[b]*my[b] - my[i]*my[i])/(dy);
-            float dmzmzdz = (mz[u]*mz[u] - mz[i]*mz[i])/(dz);
-
-            float dmxmydy = (mx[i]*my[i] - mx[f]*my[f])/(dy);
-            float dmxmzdz = (mx[i]*mz[i] - mx[d]*mz[d])/(dz);
-            float dmxmydx = (mx[i]*my[i] - mx[l]*my[l])/(dx);
-            float dmymzdz = (my[i]*mz[i] - my[d]*mz[d])/(dz);
-            float dmxmzdx = (mx[i]*mz[i] - mx[l]*mz[l])/(dx);
-            float dmymzdy = (my[i]*mz[i] - my[f]*mz[f])/(dy);
-
-            if (x_bd) {
-            dmxmxdx = 0;
-            dmxmydx = 0;
-            dmxmzdx = 0;
-            };
-
-            if (y_bd) {
-            dmymydy = 0;
-            dmxmydy = 0;
-            dmymzdy = 0;
-            };
-
-            if (z_bd) {
-            dmzmzdz = 0;
-            dmxmzdz = 0;
-            dmymzdz = 0;
-            };
-
-            if (lx==1) {
-            dsigmaxxdx=0;
-            dsigmaxydx=0;
-            dsigmaxzdx=0;
-            };
-
-            if (ly==1) {
-            dsigmayydy=0;
-            dsigmaxydy=0;
-            dsigmayzdy=0;
-            };
-
-            //if (lz==1) {
-            //dsigmazzdz=0;
-            //dsigmaxzdz=0;
-            //dsigmayzdz=0;
-            //};
-
-            float MEx = B1*dmxmxdx + B2*(dmxmydy + dmxmzdz);
-            float MEy = B1*dmymydy + B2*(dmxmydx + dmymzdz);
-            float MEz = B1*dmzmzdz + B2*(dmxmzdx + dmymzdy);
-
-            float Bx = 1/rho;
-            float By = 1/rho;
-            float Bz = 1/rho;
-
-            if ((x_bd && lx > 1) || (y_bd && ly > 1) || ((z_bd && lz > 1)))  {
-            Bx=small;
-            By=small;
-            Bz=small;
-            };
+            ''' + self.bd_code_vel + '''
 
             float fx = 0;
             float fy = 0;
             float fz = 0;
 
-            /*
-            if (right_bd){
-            fx = -sigmaxxm/dx;
+            ''' + self.mgstr_code + '''
+
+            float new_vx = vx[i] + (dsigmaxxdx + dsigmaxydy + dsigmaxzdz - Alpha * vx[i] + MEx + fx)*dt/reciep_rho;
+            float new_vy = vy[i] + (dsigmaxydx + dsigmayydy + dsigmayzdz - Alpha * vy[i] + MEy + fy)*dt/reciep_rho;
+            float new_vz = vz[i] + (dsigmaxzdx + dsigmayzdy + dsigmazzdz - Alpha * vz[i] + MEz + fz)*dt/reciep_rho;
+
+            if (!isnan(vx_bd)) {
+            new_vx = vx_bd;
             };
-
-            if (left_bd){
-            fx = sigmaxxm/dx;
+            if (!isnan(vy_bd)) {
+            new_vy = vy_bd;
             };
-
-            if (back_bd){
-            fy = -sigmayym/dy;
+            if (!isnan(vz_bd)) {
+            new_vz = vz_bd;
             };
-
-            if (front_bd){
-            fy = sigmayym/dy;
-            };
-
-            if (down_bd) {
-            fz = sigmazzm/dz;
-            };
-
-            if (up_bd) {
-            fz = -sigmazzm/dz;
-            };
-            */
-
-            if (down_bd) {
-            fz = sigmazzm/dz;
-            };
-
-            if (up_bd) {
-            fz = -sigmazzm/dz;
-            };
-
-            float new_vx = vx[i] + (dsigmaxxdx + dsigmaxydy + dsigmaxzdz - Alpha * vx[i] + MEx + fx)*dt*Bx;
-            float new_vy = vy[i] + (dsigmaxydx + dsigmayydy + dsigmayzdz - Alpha * vy[i] + MEy + fy)*dt*By;
-            float new_vz = vz[i] + (dsigmaxzdx + dsigmayzdy + dsigmazzdz - Alpha * vz[i] + MEz + fz)*dt*Bz;
-
-            if (z_bd) {
-            new_vz = 0;
-            }
 
             barrier(CLK_GLOBAL_MEM_FENCE);
 
@@ -264,7 +423,6 @@ class elasto:
 
         __kernel void update_strains(
         __global float *vx,       __global float *vy,       __global float *vz,
-        __global float *mx,       __global float *my,       __global float *mz,
         __global float *sigma_xx, __global float *sigma_yy, __global float *sigma_zz,
         __global float *sigma_xy, __global float *sigma_yz, __global float *sigma_xz,
         __global float *eps_xx,   __global float *eps_yy,   __global float *eps_zz,
@@ -275,58 +433,19 @@ class elasto:
             ''' + self.coord_syst + '''
 
             float dvxdx = (vx[i]-vx[l])/dx;
+            float dvydy = (vy[i]-vy[f])/dy;
+            float dvzdz = (vz[i]-vz[d])/dz;
+
             float dvydx = (vy[r]-vy[i])/dx;
             float dvzdx = (vz[r]-vz[i])/dx;
 
             float dvxdy = (vx[b]-vx[i])/dy;
-            float dvydy = (vy[i]-vy[f])/dy;
             float dvzdy = (vz[b]-vz[i])/dy;
 
             float dvxdz = (vx[u]-vx[i])/dz;
             float dvydz = (vy[u]-vy[i])/dz;
-            float dvzdz = (vz[i]-vz[d])/dz;
 
-            float small = 10e-23;
-
-            if (up_bd) {
-            dvxdz = (small-vx[i])/dz;
-            dvydz = (small-vy[i])/dz;
-            };
-            if (down_bd) {
-            dvzdz = (vz[i])/dz;
-            };
-            if (back_bd) {
-            dvxdy = (small-vx[i])/dy;
-            dvzdy = (small-vz[i])/dy;
-            };
-            if (front_bd) {
-            dvydy = (vy[i]-small)/dy;
-            };
-            if (right_bd) {
-            dvydx = (small-vy[i])/dx;
-            dvzdx = (small-vz[i])/dx;
-            };
-            if (left_bd) {
-            dvxdx = (vx[i]-small)/dx;
-            };
-
-            if (lx==1) {
-            dvxdx = 0;
-            dvydx = 0;
-            dvzdx = 0;
-            };
-
-            if (ly==1) {
-            dvxdy = 0;
-            dvydy = 0;
-            dvzdy = 0;
-            };
-
-            //if (lz==1) {
-            //dvxdz = 0;
-            //dvydz = 0;
-            //dvzdz = 0;
-            //};
+            ''' + self.bd_code_str + '''
 
             float dsigmaxxdt = c11 * dvxdx + c12 * (dvydy + dvzdz);
             float dsigmayydt = c11 * dvydy + c12 * (dvxdx + dvzdz);
@@ -343,16 +462,23 @@ class elasto:
             float new_sigmayz = sigma_yz[i] + dsigmayzdt * dt;
             float new_sigmaxz = sigma_xz[i] + dsigmaxzdt * dt;
 
-            if (up_bd) {
-            new_sigmazz = sigmazzm;
-            new_sigmayz = 0;
-            new_sigmaxz = 0;
+            if (!isnan(sigmaxx_bd)) {
+            new_sigmaxx = sigmaxx_bd;
             };
-
-            if (down_bd) {
-            new_sigmazz = sigmazzm;
-            new_sigmayz = 0;
-            new_sigmaxz = 0;
+            if (!isnan(sigmayy_bd)) {
+            new_sigmayy = sigmayy_bd;
+            };
+            if (!isnan(sigmazz_bd)) {
+            new_sigmazz = sigmazz_bd;
+            };
+            if (!isnan(sigmaxy_bd)) {
+            new_sigmaxy = sigmaxy_bd;
+            };
+            if (!isnan(sigmaxz_bd)) {
+            new_sigmaxz = sigmaxz_bd;
+            };
+            if (!isnan(sigmayz_bd)) {
+            new_sigmayz = sigmayz_bd;
             };
 
             barrier(CLK_GLOBAL_MEM_FENCE);
@@ -461,7 +587,6 @@ class elasto:
 
         launch = self.prog.update_strains(self.queue, self.vx.shape, None,
         self.vx_buf,      self.vy_buf,      self.vz_buf,
-        self.mx_buf,      self.my_buf,      self.mz_buf,
         self.sigmaxx_buf, self.sigmayy_buf, self.sigmazz_buf,
         self.sigmaxy_buf, self.sigmayz_buf, self.sigmaxz_buf,
         self.eps_xx_buf,  self.eps_yy_buf,  self.eps_zz_buf,
@@ -754,5 +879,90 @@ class elasto:
             new_sigmayz = 0;
             new_sigmaxz = 0;
             };
+
+            if ((x_bd && lx > 1) || (y_bd && ly > 1) || (z_bd && lz > 1))  {
+            Bx=1e-27;
+            By=1e-27;
+            Bz=1e-27;
+            };
+
+            if ((right_bd && lx > 1) )  {
+            Bx=1e-27;
+            };
+
+            if ((back_bd && ly > 1) )  {
+            By=1e-27;
+            };
+
+            if ((up_bd && lz > 1) )  {
+            Bz=1e-27;
+            };
+
+            /*
+                        if (up_bd) {
+                        dvxdz = (small-vx[i])/dz;
+                        dvydz = (small-vy[i])/dz;
+                        };
+                        if (down_bd) {
+                        dvzdz = (vz[i]-small)/dz;
+                        };
+
+                        if (back_bd) {
+                        dvxdy = (small-vx[i])/dy;
+                        dvzdy = (small-vz[i])/dy;
+                        };
+                        if (front_bd) {
+                        dvydy = (vy[i]-small)/dy;
+                        };
+
+                        if (right_bd) {
+                        dvydx = (small-vy[i])/dx;
+                        dvzdx = (small-vz[i])/dx;
+                        };
+                        if (left_bd) {
+                        dvxdx = (vx[i]-small)/dx;
+                        };
+
+            */
+
+                if (x_bd && y_bd) {
+                dvxdx = -c12/(c11+c12)*(dvzdz);
+                dvydy = -c12/(c11+c12)*(dvzdz);
+                dvydx = 0;
+                dvzdx = 0;
+                dvxdy = 0;
+                dvzdy = 0;
+                };
+
+                if (x_bd && up_bd) {
+                dvxdx = -c12/(c11+c12)*(dvydy);
+                dvzdz = -c12/(c11+c12)*(dvydy);
+                dvydx = 0;
+                dvzdx = 0;
+                dvxdz = 0;
+                dvydz = 0;
+                };
+
+                if (y_bd && up_bd) {
+                dvydy = -c12/(c11+c12)*(dvxdx);
+                dvzdz = -c12/(c11+c12)*(dvxdx);
+                dvxdy = 0;
+                dvzdy = 0;
+                dvxdz = 0;
+                dvydz = 0;
+                };
+
+                if (x_bd && y_bd && up_bd) {
+                dvxdx = 0;
+                dvydy = 0;
+                dvzdz = 0;
+
+                dvxdy = 0;
+                dvzdy = 0;
+                dvxdz = 0;
+                dvydz = 0;
+                dvzdx = 0;
+                dvydx = 0;
+                };
 
 '''
