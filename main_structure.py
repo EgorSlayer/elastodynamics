@@ -60,6 +60,30 @@ class elasto:
             sigmayz_bd = 0;
             };
             '''
+        elif self.U_BD == 'Absobtion':
+
+            self.bd_code_vel += '''
+            if (up_bd || z == lz-2 || z == lz-3 || z == lz-4 || z == lz-5) {
+            Alpha = 1e23;
+            };
+            '''
+
+        elif self.U_BD == 'Free_ab':
+
+            self.bd_code_str += '''
+            if (up_bd && (lz>1)) {
+            dvzdz = -c12/c11*(dvxdx+dvydy);
+            dvxdz = -dvzdx;
+            dvydz = -dvzdy;
+
+            sigmazz_bd = 0;
+            sigmaxz_bd = 0;
+            sigmayz_bd = 0;
+
+            Alpha = 1e23;
+            };
+            '''
+
 
         # lower bound managment
 
@@ -101,7 +125,7 @@ class elasto:
 
             self.bd_code_str += '''
 
-            if (down_bd && (lz>1)) {
+            if (down_bd) {
             sigmaxx_bd = 0.01*(c11+c12);
             sigmayy_bd = 0.01*(c11+c12);
             sigmazz_bd = 0.02*c12;
@@ -171,6 +195,50 @@ class elasto:
 
             '''
 
+        elif self.D_BD == 'Emmiter':
+
+            self.bd_code_str += '''
+
+            if (down_bd) {
+
+            sigmaxx_bd = 0.01*c12*sin(time_val*2*3.1415*dt*1e10);
+            sigmayy_bd = 0.01*c12*sin(time_val*2*3.1415*dt*1e10);
+            sigmazz_bd = 0.01*c11*sin(time_val*2*3.1415*dt*1e10);
+            sigmaxy_bd = 0;
+            sigmayz_bd = 0;
+            sigmaxz_bd = 0;
+
+            };
+
+
+            '''
+
+        elif self.D_BD == 'Emmiter2.0':
+
+            self.bd_code_vel += '''
+
+            if (down_bd) {
+
+            fz = -(c11*0.01*sin(time_val*2*3.1415*dt*1e8))/dz;
+
+            if (x==lx-2) {
+            fx = (c12*0.01*sin(time_val*2*3.1415*dt*1e8))/dx;
+            };
+            if (x==0) {
+            fx = -(c12*0.01*sin(time_val*2*3.1415*dt*1e8))/dx;
+            };
+            if (y==ly-2) {
+            fy = (c12*0.01*sin(time_val*2*3.1415*dt*1e8))/dy;
+            };
+            if (y==0) {
+            fy = -(c12*0.01*sin(time_val*2*3.1415*dt*1e8))/dy;
+            };
+
+            };
+
+
+            '''
+
         # right bound managment
 
         if self.R_BD == 'Free':
@@ -180,8 +248,7 @@ class elasto:
             dvxdx = -c12/c11*(dvydy+dvzdz);
             dvydx = -dvxdy;
             dvzdx = -dvxdz;
-            };
-            if (right_bd) {
+
             sigmaxx_bd = 0;
             sigmaxy_bd = 0;
             sigmaxz_bd = 0;
@@ -197,8 +264,7 @@ class elasto:
             dvxdx = -c12/c11*(dvydy+dvzdz);
             dvydx = -dvxdy;
             dvzdx = -dvxdz;
-            };
-            if (left_bd) {
+
             sigmaxx_bd = 0;
             sigmaxy_bd = 0;
             sigmaxz_bd = 0;
@@ -214,8 +280,7 @@ class elasto:
             dvydy = -c12/c11*(dvxdx+dvzdz);
             dvxdy = -dvydx;
             dvzdy = -dvzdz;
-            };
-            if (back_bd) {
+
             sigmayy_bd = 0;
             sigmaxy_bd = 0;
             sigmayz_bd = 0;
@@ -231,8 +296,7 @@ class elasto:
             dvydy = -c12/c11*(dvxdx+dvzdz);
             dvxdy = -dvydx;
             dvzdy = -dvzdz;
-            };
-            if (front_bd) {
+
             sigmayy_bd = 0;
             sigmaxy_bd = 0;
             sigmayz_bd = 0;
@@ -248,6 +312,13 @@ class elasto:
             dvzdx = 0;
             dvxdy = 0;
             dvzdy = 0;
+
+            sigmaxx_bd = 0;
+            sigmaxy_bd = 0;
+            sigmaxz_bd = 0;
+            sigmayy_bd = 0;
+            sigmayz_bd = 0;
+
             };
             '''
 
@@ -261,6 +332,12 @@ class elasto:
             dvzdx = 0;
             dvxdz = 0;
             dvydz = 0;
+
+            sigmaxx_bd = 0;
+            sigmaxy_bd = 0;
+            sigmaxz_bd = 0;
+            sigmazz_bd = 0;
+            sigmayz_bd = 0;
             };
             '''
 
@@ -274,6 +351,12 @@ class elasto:
             dvzdy = 0;
             dvxdz = 0;
             dvydz = 0;
+
+            sigmayy_bd = 0;
+            sigmaxy_bd = 0;
+            sigmayz_bd = 0;
+            sigmazz_bd = 0;
+            sigmaxz_bd = 0;
             };
             '''
 
@@ -290,6 +373,13 @@ class elasto:
             dvydz = 0;
             dvzdx = 0;
             dvydx = 0;
+
+            sigmaxx_bd = 0;
+            sigmayy_bd = 0;
+            sigmazz_bd = 0;
+            sigmaxy_bd = 0;
+            sigmayz_bd = 0;
+            sigmaxz_bd = 0;
             };
             '''
 
@@ -384,7 +474,7 @@ class elasto:
         int u=i+pl;
         int d=i-pl;
 
-        const float Alpha = '''+str(self.Alpha)+''';
+        float Alpha = '''+str(self.Alpha)+''';
 
         const float small = 0;
         const float big = 1/small;
@@ -420,6 +510,11 @@ class elasto:
         const float B2MgO = 0;
 
         const float aMgO = 3.0;
+
+        float time_val = time_val_arr[0];
+        if (i==0){
+        time_val_arr[0] = time_val_arr[0] + 1;
+        };
         '''
 
         # boundaries for vel update
@@ -566,6 +661,8 @@ class elasto:
 
         mf = cl.mem_flags
 
+        self.time_val_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=np.zeros(1).astype(np.float32))
+
         self.mx_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=self.mx)
         self.my_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=self.my)
         self.mz_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=self.mz)
@@ -595,6 +692,7 @@ class elasto:
         self.code_el = '''
 
         __kernel void update_velocity(
+        __global float *time_val_arr,
         __global float *vx,       __global float *vy,       __global float *vz,
         __global float *mx,       __global float *my,       __global float *mz,
         __global float *sigma_xx, __global float *sigma_yy, __global float *sigma_zz,
@@ -602,6 +700,8 @@ class elasto:
         __global float *eps_xx,   __global float *eps_yy,   __global float *eps_zz)
 
         {   int i = get_global_id(0);
+
+
 
             ''' + self.coord_syst + '''
 
@@ -643,6 +743,7 @@ class elasto:
 
 
         __kernel void update_strains(
+        __global float *time_val_arr,
         __global float *vx,       __global float *vy,       __global float *vz,
         __global float *sigma_xx, __global float *sigma_yy, __global float *sigma_zz,
         __global float *sigma_xy, __global float *sigma_yz, __global float *sigma_xz,
@@ -718,6 +819,7 @@ class elasto:
     def dynamics(self):
 
         launch = self.prog.update_velocity(self.queue, self.vx.shape, None,
+        self.time_val_buf,
         self.vx_buf,      self.vy_buf,      self.vz_buf,
         self.mx_buf,      self.my_buf,      self.mz_buf,
         self.sigmaxx_buf, self.sigmayy_buf, self.sigmazz_buf,
@@ -727,6 +829,7 @@ class elasto:
 
 
         launch = self.prog.update_strains(self.queue, self.vx.shape, None,
+        self.time_val_buf,
         self.vx_buf,      self.vy_buf,      self.vz_buf,
         self.sigmaxx_buf, self.sigmayy_buf, self.sigmazz_buf,
         self.sigmaxy_buf, self.sigmayz_buf, self.sigmaxz_buf,
