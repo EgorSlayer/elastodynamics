@@ -1,3 +1,3 @@
 # elastodynamics
 
-GPU powered integrator of elastodynamics for cubic symmetry. 
+GPU powered python lib for 3D simulation of elastodynamics in crystals with cubic symmetry. 
