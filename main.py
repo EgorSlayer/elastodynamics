@@ -1,7 +1,14 @@
 import pyopencl as cl
+import pyopencl.array as cl_array
 import numpy as np
+from math import cos, sin, pi
+from numpy.fft import fftn, ifftn
 import matplotlib.pyplot as plt
+from numpy.random import random, normal
 from matplotlib.ticker import MaxNLocator
+import telebot
+import reikna.cluda as cluda
+from reikna.fft import FFT
 
 class elasto:
 
@@ -10,479 +17,82 @@ class elasto:
         self.ctx = cl.Context(dev_type=cl.device_type.GPU, properties=[(cl.context_properties.PLATFORM, platforms[0])])
         self.queue = cl.CommandQueue(self.ctx)
 
-
-    def init_boundaries(self, R_BD, L_BD, B_BD, F_BD, U_BD, D_BD):
-
-        self.R_BD = R_BD
-        self.L_BD = L_BD
-        self.B_BD = B_BD
-        self.F_BD = F_BD
-        self.U_BD = U_BD
-        self.D_BD = D_BD
-
-        if R_BD == 'Free' and L_BD == 'Free':
-            self.X_BD = 'Free'
-        if B_BD == 'Free' and F_BD == 'Free':
-            self.Y_BD = 'Free'
-        if U_BD == 'Free' and D_BD == 'Free':
-            self.Z_BD = 'Free'
-
-        # upper bound managment
-
-
-        if self.U_BD == 'Free':
-
-            self.bd_code_str += '''
-            if (up_bd && (lz>1)) {
-            dvzdz = -c12/c11*(dvxdx+dvydy);
-            dvxdz = -dvzdx;
-            dvydz = -dvzdy;
-
-            sigmazz_bd = 0;
-            sigmaxz_bd = 0;
-            sigmayz_bd = 0;
-            };
-            '''
-        elif self.U_BD == 'z_stressed':
-
-            self.bd_code_vel += '''
-            if (up_bd && (lz>1)) {
-            vz_bd = 0;
-            };
-            '''
-            self.bd_code_str += '''
-            if (up_bd && (lz>1)) {
-            dvzdz = 0;
-            dvxdz = -dvzdx;
-            dvydz = -dvzdy;
-
-            sigmazz_bd = 1e7;
-            sigmaxz_bd = 0;
-            sigmayz_bd = 0;
-            };
-            '''
-        elif self.U_BD == 'Absobtion':
-
-            self.bd_code_vel += '''
-            if (up_bd || z == lz-2 || z == lz-3 || z == lz-4 || z == lz-5) {
-            Alpha = 1e23;
-            };
-            '''
-
-        elif self.U_BD == 'Free_ab':
-
-            self.bd_code_str += '''
-            if (up_bd && (lz>1)) {
-            dvzdz = -c12/c11*(dvxdx+dvydy);
-            dvxdz = -dvzdx;
-            dvydz = -dvzdy;
-
-            sigmazz_bd = 0;
-            sigmaxz_bd = 0;
-            sigmayz_bd = 0;
-
-            Alpha = 1e23;
-            };
-            '''
-        elif self.U_BD == 'Open':
-
-            self.bd_code_vel += '''
-            if (up_bd & (lz>1)) {
-            dsigmazzdz = -sqrt(c11*rho)*(vz[i]-vz[d])/dz;
-            };
-            '''
-
-            self.bd_code_str += '''
-            if (up_bd & (lz>1)) {
-            dvydz = -(sigma_yz[i]-sigma_yz[d])/dz/sqrt(c44*rho);
-            dvxdz = -(sigma_xz[i]-sigma_xz[d])/dz/sqrt(c44*rho);
-            };
-            '''
-
-
-        # lower bound managment
-
-        if self.D_BD == 'Free':
-
-            self.bd_code_str += '''
-            if (down_bd) {
-            dvzdz = -c12/c11*(dvxdx+dvydy);
-            dvxdz = -dvzdx;
-            dvydz = -dvzdy;
-
-            sigmazz_bd = 0;
-            sigmaxz_bd = 0;
-            sigmayz_bd = 0;
-            };
-            '''
-
-        elif self.D_BD == 'z_stressed':
-
-            self.bd_code_vel += '''
-            if (down_bd && (lz>1)) {
-            vz_bd = 0;
-            };
-            '''
-            self.bd_code_str += '''
-            if (down_bd && (lz>1)) {
-            dvzdz = -c12/c11*(dvxdx+dvydy);
-            dvxdz = -dvzdx;
-            dvydz = -dvzdy;
-
-            sigmazz_bd = 1e7;
-            sigmaxz_bd = 0;
-            sigmayz_bd = 0;
-            };
-            '''
-
-
-        elif self.D_BD == 'substrate':
-
-            self.bd_code_str += '''
-
-            if (down_bd) {
-            sigmaxx_bd = 0.01*(c11+c12);
-            sigmayy_bd = 0.01*(c11+c12);
-            sigmazz_bd = 0.02*c12;
-            sigmaxy_bd = 0;
-            sigmayz_bd = 0;
-            sigmaxz_bd = 0;
-            };
-            '''
-
-        elif self.D_BD == 'Andreys substrate':
-
-            self.bd_code_str += '''
-            if (down_bd && (lz>1)) {
-            dvxdz = vx[i]*(eps_m/(1-eps_m))/dz;
-            dvydz = vy[i]*(eps_m/(1-eps_m))/dz;
-
-            sigmaxx_bd = c11 * 0.01 + c12 * 0.01;
-            sigmayy_bd = sigmaxx_bd;
-            sigmazz_bd = c12 * 0.02;
-            sigmaxy_bd = 0;
-            sigmayz_bd = 0;
-            sigmaxz_bd = 0;
-            };
-            '''
-
-        elif self.D_BD == 'Fixed':
-
-            self.bd_code_vel += '''
-            if (down_bd && (lz>1)) {
-            vx_bd = 0;
-            vy_bd = 0;
-            vz_bd = 0;
-            };
-            '''
-            self.bd_code_str += '''
-            if (down_bd && (lz>1)) {
-
-            sigmaxx_bd = 0;
-            sigmayy_bd = 0;
-            sigmazz_bd = 0;
-            sigmaxy_bd = 0;
-            sigmayz_bd = 0;
-            sigmaxz_bd = 0;
-            };
-            '''
-        elif len(self.D_BD) == 3:
-
-            self.bd_code_vel += '''
-
-            if (down_bd) {
-
-            if (x==lx-2) {
-            fx = (c11*'''+str(self.D_BD[0])+'''+c12*('''+str(self.D_BD[1])+'''+'''+str(self.D_BD[2])+'''))/dx;
-            };
-            if (x==0) {
-            fx = -(c11*'''+str(self.D_BD[0])+'''+c12*('''+str(self.D_BD[1])+'''+'''+str(self.D_BD[2])+'''))/dx;
-            };
-            if (y==ly-2) {
-            fy = (c11*'''+str(self.D_BD[1])+'''+c12*('''+str(self.D_BD[0])+'''+'''+str(self.D_BD[2])+'''))/dy;
-            };
-            if (y==0) {
-            fy = -(c11*'''+str(self.D_BD[1])+'''+c12*('''+str(self.D_BD[0])+'''+'''+str(self.D_BD[2])+'''))/dy;
-            };
-
-            };
-
-
-            '''
-
-        elif self.D_BD == 'Emmiter':
-
-            self.bd_code_str += '''
-
-            const float freq = 1e10;
-
-            if (down_bd) {
-
-            sigmaxx_bd = 0.01*c12*sin(time_val*2*3.1415*dt*freq);
-            sigmayy_bd = 0.01*c12*sin(time_val*2*3.1415*dt*freq);
-            sigmazz_bd = 0.01*c11*sin(time_val*2*3.1415*dt*freq);
-            sigmaxy_bd = 0;
-            sigmayz_bd = 0;
-            sigmaxz_bd = 0;
-
-            };
-
-
-            '''
-
-        elif self.D_BD == 'Emmiter2.0':
-
-            self.bd_code_vel += '''
-
-            if (down_bd) {
-
-            fz = -(c11*0.01*sin(time_val*2*3.1415*dt*1e8))/dz;
-
-            if (x==lx-2) {
-            fx = (c12*0.01*sin(time_val*2*3.1415*dt*1e8))/dx;
-            };
-            if (x==0) {
-            fx = -(c12*0.01*sin(time_val*2*3.1415*dt*1e8))/dx;
-            };
-            if (y==ly-2) {
-            fy = (c12*0.01*sin(time_val*2*3.1415*dt*1e8))/dy;
-            };
-            if (y==0) {
-            fy = -(c12*0.01*sin(time_val*2*3.1415*dt*1e8))/dy;
-            };
-
-            };
-
-
-            '''
-
-        # right bound managment
-
-        if self.R_BD == 'Free':
-
-            self.bd_code_str += '''
-            if (right_bd) {
-            dvxdx = -c12/c11*(dvydy+dvzdz);
-            dvydx = -dvxdy;
-            dvzdx = -dvxdz;
-
-            sigmaxx_bd = 0;
-            sigmaxy_bd = 0;
-            sigmaxz_bd = 0;
-            };
-            '''
-
-        # left bound managment
-
-        if self.L_BD == 'Free':
-
-            self.bd_code_str += '''
-            if (left_bd) {
-            dvxdx = -c12/c11*(dvydy+dvzdz);
-            dvydx = -dvxdy;
-            dvzdx = -dvxdz;
-
-            sigmaxx_bd = 0;
-            sigmaxy_bd = 0;
-            sigmaxz_bd = 0;
-            };
-            '''
-
-        # back bound managment
-
-        if self.B_BD == 'Free':
-
-            self.bd_code_str += '''
-            if (back_bd) {
-            dvydy = -c12/c11*(dvxdx+dvzdz);
-            dvxdy = -dvydx;
-            dvzdy = -dvzdz;
-
-            sigmayy_bd = 0;
-            sigmaxy_bd = 0;
-            sigmayz_bd = 0;
-            };
-            '''
-
-        # front bound managment
-
-        if self.F_BD == 'Free':
-
-            self.bd_code_str += '''
-            if (front_bd) {
-            dvydy = -c12/c11*(dvxdx+dvzdz);
-            dvxdy = -dvydx;
-            dvzdy = -dvzdz;
-
-            sigmayy_bd = 0;
-            sigmaxy_bd = 0;
-            sigmayz_bd = 0;
-            };
-            '''
-
-        if self.X_BD == 'Free' and self.Y_BD == 'Free':
-            self.bd_code_str += '''
-            if (x_bd && y_bd) {
-            dvxdx = -c12/(c11+c12)*(dvzdz);
-            dvydy = -c12/(c11+c12)*(dvzdz);
-            dvydx = 0;
-            dvzdx = 0;
-            dvxdy = 0;
-            dvzdy = 0;
-
-            sigmaxx_bd = 0;
-            sigmaxy_bd = 0;
-            sigmaxz_bd = 0;
-            sigmayy_bd = 0;
-            sigmayz_bd = 0;
-
-            };
-            '''
-
-        if self.X_BD == 'Free' and self.U_BD == 'Free':
-            self.bd_code_str += '''
-
-            if (x_bd && up_bd && (lz > 1)) {
-            dvxdx = -c12/(c11+c12)*(dvydy);
-            dvzdz = -c12/(c11+c12)*(dvydy);
-            dvydx = 0;
-            dvzdx = 0;
-            dvxdz = 0;
-            dvydz = 0;
-
-            sigmaxx_bd = 0;
-            sigmaxy_bd = 0;
-            sigmaxz_bd = 0;
-            sigmazz_bd = 0;
-            sigmayz_bd = 0;
-            };
-            '''
-
-        if self.Y_BD == 'Free' and self.U_BD == 'Free':
-            self.bd_code_str += '''
-
-            if (y_bd && up_bd && (lz > 1)) {
-            dvydy = -c12/(c11+c12)*(dvxdx);
-            dvzdz = -c12/(c11+c12)*(dvxdx);
-            dvxdy = 0;
-            dvzdy = 0;
-            dvxdz = 0;
-            dvydz = 0;
-
-            sigmayy_bd = 0;
-            sigmaxy_bd = 0;
-            sigmayz_bd = 0;
-            sigmazz_bd = 0;
-            sigmaxz_bd = 0;
-            };
-            '''
-
-        if self.X_BD == 'Free' and self.Y_BD == 'Free' and self.U_BD == 'Free':
-            self.bd_code_str += '''
-            if (x_bd && y_bd && up_bd) {
-            dvxdx = 0;
-            dvydy = 0;
-            dvzdz = 0;
-
-            dvxdy = 0;
-            dvzdy = 0;
-            dvxdz = 0;
-            dvydz = 0;
-            dvzdx = 0;
-            dvydx = 0;
-
-            sigmaxx_bd = 0;
-            sigmayy_bd = 0;
-            sigmazz_bd = 0;
-            sigmaxy_bd = 0;
-            sigmayz_bd = 0;
-            sigmaxz_bd = 0;
-            };
-            '''
-
-    def init_structure(self, interfaces):
-
-        self.coord_syst += '''
-        float c11 = NAN;
-        float c12 = NAN;
-        float c44 = NAN;
-        float rho = NAN;
-
-        float B1 = NAN;
-        float B2 = NAN;
-
-        float eps_m = NAN;
-        '''
-
-        for material in interfaces:
-
-            self.coord_syst += 'if ((z >= ' + str(interfaces[material][0]) + ') && (z <= ' + str(interfaces[material][1]) + ''')) {
-            c11 = c11'''+str(material)+''';
-            c12 = c12'''+str(material)+''';
-            c44 = c44'''+str(material)+''';
-            rho = rho'''+str(material)+''';
-
-            B1 =  B1'''+str(material)+''';
-            B2 =  B2'''+str(material)+''';
-
-            eps_m = (aMgO-aCoFe)/aCoFe;
-            eps_m = 0;
-            };
-            '''
-
-            self.bd_code_str +='if ((z == '+str(interfaces[material][1]) + ''') && !z_bd) {
-            dvxdz = (vx[i]*eps_m)/dz;
-            dvydz = (vy[i]*eps_m)/dz;
-            };
-            '''
-
-            self.bd_code_vel +='if ((z == '+str(interfaces[material][1]) + ''') && !z_bd) {
-            dsigmazzdz = (c11CoFe*eps_zz[u]+c12CoFe*(2*eps_m+(eps_m+1)*(eps_xx[i]+eps_yy[i]))-sigma_zz[i])/dz;
-            };
-            '''
-
-    def init_data(self,Lx,Ly,Lz,dx,dy,dz,dt,Alpha,MAG):
+    # initiate geometry and heterostructure films
+    def init_structure(self,interfaces,Lx,Ly,Lz,dx,dy,dz,dt,static=False, T=0,Hz=0,pin=False,LDy=4,LDx=50):
 
         self.Lx = Lx
         self.Ly = Ly
         self.Lz = Lz
         self.L  = Lx * Ly * Lz
+
+        self.Lzm = int(interfaces['CoFe'][1] - interfaces['CoFe'][0])+1
+        self.Lm  = int(Lx * Ly * self.Lzm)
+        self.specL =  (2 * Lx - 1) * (2 * Ly - 1) * (2 * self.Lzm - 1)
+
+        if static == False:
+            Alpha = 0.01             #Damping M
+            Beta = 0                 #Damping EL
+        else:
+            Alpha = 1
+            Beta = 10**16
+
         self.dx = dx
         self.dy = dy
         self.dz = dz
         self.dt = dt
         self.Alpha = Alpha
-        self.MAG = MAG
+        self.Beta =  Beta
+        self.T  = T      #K
+        self.Hz = Hz     #A/m
+        self.pin = pin
+        self.LDx = LDx
+        self.LDy = LDy
 
-        self.coord_syst = '''
+        self.mag_consts = '''
 
-        const int lx =  '''+str(self.Lx)+''';
-        const int ly =  '''+str(self.Ly)+''';
-        const int lz =  '''+str(self.Lz)+''';
-        int pl = lx * ly;
+        const float Gamma = 1.76085e11;
+        const float Mu0 = 1.25663e-6;
+        const float bolzman = 1.38e-23;
+        const float Alpha = ''' + str(self.Alpha)  + ''';
+        const float Alpha2 = Alpha*Alpha;
+        const float K1CoFe = -1560.6;
+        const float KsCoFe = 1.18e-3;
+        const float MsCoFe = 16e5;
+        const float ACoFe =  2.5e-11;
+        const float B1CoFe = -20.18e6;
+        const float B2CoFe = -15.272e6;
+        float D0CoFe = 2.26e-3;
+        D0CoFe = 0.82e-11;
+        float Omega = D0CoFe/ACoFe;
+
+        const float T =  ''' + str(self.T)  + ''';
+        const float Hz = ''' + str(self.Hz) + '''e5;
+        '''
+
+        self.shift = int(interfaces['CoFe'][0]*self.Lx*self.Ly)
+
+        self.coord_syst_mag = '''
+
+        const int lx = '''      + str(self.Lx) + ''';
+        const int ly = '''      + str(self.Ly) + ''';
+        const int lz = '''      + str(self.Lzm) + ''';
+        const int speclen = ''' + str(self.specL) + ''';
+        const int len = '''     + str(self.Lm) + ''';
+
+        const int pl = lx * ly;
         int x = i % lx;
         int z = i / pl;
         int y = (i - z * pl)/ lx;
+        int speci = z * (2 * ly - 1) * (2 * lx - 1) + y * (2 * lx - 1) + x ;
 
-        bool left_bd  = x == 0;
-        bool right_bd = x == lx-1;
-        bool front_bd = y == 0;
-        bool back_bd  = y == ly-1;
-        bool down_bd  = z == 0;
-        bool up_bd    = z == lz-1;
 
-        bool x_bd = right_bd || left_bd;
-        bool y_bd = back_bd  || front_bd;
-        bool z_bd = up_bd    || down_bd;
-
-        const float dt = '''+str(self.dt)+'''e-18;
-        const float dx = '''+str(self.dx)+'''e-9;
-        const float dy = '''+str(self.dy)+'''e-9;
-        const float dz = '''+str(self.dz)+'''e-9;
-        const float dt2 = native_powr(dt, 2);
-        const float dx2 = native_powr(dx, 2);
-        const float dy2 = native_powr(dy, 2);
-        const float dz2 = native_powr(dz, 2);
+        const float dt = ''' + str(self.dt) + '''e-18;
+        const float dx = ''' + str(self.dx) + '''e-9;
+        const float dy = ''' + str(self.dy) + '''e-9;
+        const float dz = ''' + str(self.dz) + '''e-9;
+        const float dx2 =  dx*dx;
+        const float dy2 =  dy*dy;
+        const float dz2 =  dz*dz;
 
         int l=i-1;
         int r=i+1;
@@ -491,9 +101,106 @@ class elasto:
         int u=i+pl;
         int d=i-pl;
 
-        float Alpha = '''+str(self.Alpha)+''';
+        '''
 
-        const float small = 0;
+        self.coord_syst_el = '''
+
+        const int lx = '''      + str(self.Lx) + ''';
+        const int ly = '''      + str(self.Ly) + ''';
+        const int lz = '''      + str(self.Lz) + ''';
+        const int len = '''     + str(self.L) + ''';
+
+        const int pl = lx * ly;
+        int x = i % lx;
+        int z = i / pl;
+        int y = (i - z * pl)/ lx;
+
+        const float dt = ''' + str(self.dt) + '''e-18;
+        const float dx = ''' + str(self.dx) + '''e-9;
+        const float dy = ''' + str(self.dy) + '''e-9;
+        const float dz = ''' + str(self.dz) + '''e-9;
+        const float dx2 =  dx*dx;
+        const float dy2 =  dy*dy;
+        const float dz2 =  dz*dz;
+
+        int l=i-1;
+        int r=i+1;
+        int f=i-lx;
+        int b=i+lx;
+        int u=i+pl;
+        int d=i-pl;
+
+        '''
+
+        bounds_el = '''
+
+        const int LDx = ''' + str(self.LDx) + ''';
+        const int LDy = ''' + str(self.LDy) + ''';
+
+        bool left_bd =  (x == 0);
+        bool right_bd = (x == lx-1);
+        bool front_bd = (y == 0);
+        bool back_bd =  (y == ly-1);
+        bool down_bd =  (z == 0);
+        bool up_bd =    (z == lz-1);
+
+        //bool left_bd =  (x == 0    || ((y <= ly/2 + LDy/2) && (y >= ly/2 - LDy/2) && (x == LDx)));
+        //bool right_bd = (x == lx-1);
+        //bool front_bd = (y == 0    ||  ((x < LDx) && (y == ly/2 + LDy/2)));
+        //bool back_bd =  (y == ly-1 ||  ((x < LDx) && (y == ly/2 - LDy/2)));
+        //bool down_bd =  (z == 0);
+        //bool up_bd =    (z == lz-1);
+
+        bool x_bd = right_bd || left_bd;
+        bool y_bd = back_bd  || front_bd;
+        bool z_bd = up_bd    || down_bd;
+        '''
+
+        bounds_mag = bounds_el
+
+        if pin:
+
+            bounds_mag = '''
+
+            const int LDx = ''' + str(self.LDx) + ''';
+            const int LDy = ''' + str(self.LDy) + ''';
+
+            bool left_bd =  (x == 0    || ((y <= ly/2 + LDy/2) && (y >= ly/2 - LDy/2) && (x == LDx)));
+            bool right_bd = (x == lx-1);
+            bool front_bd = (y == 0    ||  ((x < LDx) && (y == ly/2 + LDy/2)));
+            bool back_bd =  (y == ly-1 ||  ((x < LDx) && (y == ly/2 - LDy/2)));
+            bool down_bd =  (z == 0);
+            bool up_bd =    (z == lz-1);
+
+            bool x_bd = right_bd || left_bd;
+            bool y_bd = back_bd || front_bd;
+            bool z_bd = up_bd    || down_bd;
+            '''
+
+            bounds_el += '''
+            const bool inside = ((x < LDx)  &  (y > ly/2 - LDy / 2) & (y < ly / 2 + LDy / 2));
+            '''
+
+            bounds_mag += '''
+            const bool inside = ((x < LDx)  &  (y > ly/2 - LDy / 2) & (y < ly / 2 + LDy / 2));
+            '''
+        else:
+            bounds_el += '''
+            const bool inside = false;
+            '''
+
+            bounds_mag += '''
+            const bool inside = false;
+            '''
+
+        self.coord_syst_mag += bounds_mag
+        self.coord_syst_el += bounds_el
+
+        self.coord_syst_el += '''
+
+        float Alpha = '''+str(self.Beta)+''';
+
+        const float small = 10e-19;
         const float big = 1/small;
         const float rho_vac = 1;
 
@@ -513,8 +220,8 @@ class elasto:
         const float c44CoFe = 131e9;
         const float rhoCoFe = 8290;
 
-        const float B1CoFe =  -2e6;
-        const float B2CoFe =  -1.5e6;
+        const float B1CoFe =  -20e6;
+        const float B2CoFe =  -15e6;
 
         const float aCoFe = 2.8;
 
@@ -528,10 +235,30 @@ class elasto:
 
         const float aMgO = 3.0;
 
+        const float c11Pt = 303e9;
+        const float c12Pt = 220e9;
+        const float c44Pt = 54e9;
+        const float rhoPt = 20600;
+
+        const float B1Pt = 0;
+        const float B2Pt = 0;
+
+        const float aPt = 3.0;
+
         float time_val = time_val_arr[0];
         if (i==0){
         time_val_arr[0] = time_val_arr[0] + 1;
         };
+
+        float c11 = NAN;
+        float c12 = NAN;
+        float c44 = NAN;
+        float rho = NAN;
+
+        float B1 = NAN;
+        float B2 = NAN;
+
+        float eps_m = NAN;
         '''
 
         # boundaries for vel update
@@ -591,16 +318,17 @@ class elasto:
         # Magnetostriction
 
         self.mgstr_code = '''
-        float dmxmxdx = (mx[r]*mx[r] - mx[i]*mx[i])/(dx);
-        float dmymydy = (my[b]*my[b] - my[i]*my[i])/(dy);
-        float dmzmzdz = (mz[u]*mz[u] - mz[i]*mz[i])/(dz);
 
-        float dmxmydy = (mx[i]*my[i] - mx[f]*my[f])/(dy);
-        float dmxmzdz = (mx[i]*mz[i] - mx[d]*mz[d])/(dz);
-        float dmxmydx = (mx[i]*my[i] - mx[l]*my[l])/(dx);
-        float dmymzdz = (my[i]*mz[i] - my[d]*mz[d])/(dz);
-        float dmxmzdx = (mx[i]*mz[i] - mx[l]*mz[l])/(dx);
-        float dmymzdy = (my[i]*mz[i] - my[f]*mz[f])/(dy);
+        float dmxmxdx = (mx[r-'''+str(self.shift)+''']*mx[r-'''+str(self.shift)+'''] - mx[i-'''+str(self.shift)+''']*mx[i-'''+str(self.shift)+'''])/(dx);
+        float dmymydy = (my[b-'''+str(self.shift)+''']*my[b-'''+str(self.shift)+'''] - my[i-'''+str(self.shift)+''']*my[i-'''+str(self.shift)+'''])/(dy);
+        float dmzmzdz = (mz[u-'''+str(self.shift)+''']*mz[u-'''+str(self.shift)+'''] - mz[i-'''+str(self.shift)+''']*mz[i-'''+str(self.shift)+'''])/(dz);
+
+        float dmxmydy = (mx[i-'''+str(self.shift)+''']*my[i-'''+str(self.shift)+'''] - mx[f-'''+str(self.shift)+''']*my[f-'''+str(self.shift)+'''])/(dy);
+        float dmxmzdz = (mx[i-'''+str(self.shift)+''']*mz[i-'''+str(self.shift)+'''] - mx[d-'''+str(self.shift)+''']*mz[d-'''+str(self.shift)+'''])/(dz);
+        float dmxmydx = (mx[i-'''+str(self.shift)+''']*my[i-'''+str(self.shift)+'''] - mx[l-'''+str(self.shift)+''']*my[l-'''+str(self.shift)+'''])/(dx);
+        float dmymzdz = (my[i-'''+str(self.shift)+''']*mz[i-'''+str(self.shift)+'''] - my[d-'''+str(self.shift)+''']*mz[d-'''+str(self.shift)+'''])/(dz);
+        float dmxmzdx = (mx[i-'''+str(self.shift)+''']*mz[i-'''+str(self.shift)+'''] - mx[l-'''+str(self.shift)+''']*mz[l-'''+str(self.shift)+'''])/(dx);
+        float dmymzdy = (my[i-'''+str(self.shift)+''']*mz[i-'''+str(self.shift)+'''] - my[f-'''+str(self.shift)+''']*mz[f-'''+str(self.shift)+'''])/(dy);
 
         if (x_bd) {
         dmxmxdx = 0;
@@ -625,16 +353,9 @@ class elasto:
         float MEz = B1*dmzmzdz + B2*(dmxmzdx + dmymzdy);
         '''
 
-
         self.vx = np.zeros(self.L).astype(np.float32)
         self.vy = np.zeros(self.L).astype(np.float32)
         self.vz = np.zeros(self.L).astype(np.float32)
-
-        '''
-        self.vx = np.random.rand(self.L).astype(np.float32)
-        self.vy = np.random.rand(self.L).astype(np.float32)
-        self.vz = np.random.rand(self.L).astype(np.float32)
-        '''
 
         self.sigmaxx = np.zeros(self.L).astype(np.float32)
         self.sigmayy = np.zeros(self.L).astype(np.float32)
@@ -650,77 +371,848 @@ class elasto:
         self.eps_yz = np.zeros(self.L).astype(np.float32)
         self.eps_xz = np.zeros(self.L).astype(np.float32)
 
-        if (self.Lx == 100 and self.Ly == 100) and self.MAG == 1:
-            load = np.load("/home/heisenberg/Desktop/НИР/FM/math/CoFe_DMI/init/helical2100100.npy",allow_pickle=True)
-            load_mag = load[0]
-            Lmx = load_mag[0]
-            Lmy = load_mag[1]
-            Lmz = load_mag[2]
-        else:
-            Lmx = np.zeros(self.L).astype(np.float32)
-            Lmy = np.zeros(self.L).astype(np.float32)
-            Lmz = np.zeros(self.L).astype(np.float32)
-
-
-        self.mx = np.zeros(self.L).astype(np.float32)
-        self.my = np.zeros(self.L).astype(np.float32)
-        self.mz = np.zeros(self.L).astype(np.float32)
-
-        for z in range(Lz):
-            for y in range(Ly):
-                for x in range(Lx):
-                    i = z * Lx * Ly + y * Lx + x
-
-                    if z == int(Lz/2):
-                        self.mx[i] = Lmx[i - Lx*Ly * z]
-                        self.my[i] = Lmy[i - Lx*Ly * z]
-                        self.mz[i] = Lmz[i - Lx*Ly * z]
-
-        mf = cl.mem_flags
-
         self.time_val_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=np.zeros(1).astype(np.float32))
 
-        self.mx_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=self.mx)
-        self.my_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=self.my)
-        self.mz_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=self.mz)
+        self.vx_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE | cl.mem_flags.COPY_HOST_PTR, hostbuf=self.vx)
+        self.vy_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE | cl.mem_flags.COPY_HOST_PTR, hostbuf=self.vy)
+        self.vz_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE | cl.mem_flags.COPY_HOST_PTR, hostbuf=self.vz)
 
-        self.vx_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.vx)
-        self.vy_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.vy)
-        self.vz_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.vz)
+        self.sigmaxx_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE | cl.mem_flags.COPY_HOST_PTR, hostbuf=self.sigmaxx)
+        self.sigmayy_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE | cl.mem_flags.COPY_HOST_PTR, hostbuf=self.sigmayy)
+        self.sigmazz_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE | cl.mem_flags.COPY_HOST_PTR, hostbuf=self.sigmazz)
+        self.sigmaxy_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE | cl.mem_flags.COPY_HOST_PTR, hostbuf=self.sigmaxy)
+        self.sigmayz_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE | cl.mem_flags.COPY_HOST_PTR, hostbuf=self.sigmayz)
+        self.sigmaxz_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE | cl.mem_flags.COPY_HOST_PTR, hostbuf=self.sigmaxz)
 
-        self.sigmaxx_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.sigmaxx)
-        self.sigmayy_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.sigmayy)
-        self.sigmazz_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.sigmazz)
-        self.sigmaxy_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.sigmaxy)
-        self.sigmayz_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.sigmayz)
-        self.sigmaxz_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.sigmaxz)
+        self.eps_xx_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE | cl.mem_flags.COPY_HOST_PTR, hostbuf=self.eps_xx)
+        self.eps_yy_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE | cl.mem_flags.COPY_HOST_PTR, hostbuf=self.eps_yy)
+        self.eps_zz_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE | cl.mem_flags.COPY_HOST_PTR, hostbuf=self.eps_zz)
+        self.eps_xy_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE | cl.mem_flags.COPY_HOST_PTR, hostbuf=self.eps_xy)
+        self.eps_yz_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE | cl.mem_flags.COPY_HOST_PTR, hostbuf=self.eps_yz)
+        self.eps_xz_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE | cl.mem_flags.COPY_HOST_PTR, hostbuf=self.eps_xz)
 
-        self.eps_xx_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.eps_xx)
-        self.eps_yy_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.eps_yy)
-        self.eps_zz_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.eps_zz)
-        self.eps_xy_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.eps_xy)
-        self.eps_yz_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.eps_yz)
-        self.eps_xz_buf = cl.Buffer(self.ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=self.eps_xz)
+        for material in interfaces:
 
+            self.coord_syst_el += 'if ((z >= ' + str(interfaces[material][0]) + ') & (z <= ' + str(interfaces[material][1]) + ''')) {
+            c11 = c11'''+str(material)+''';
+            c12 = c12'''+str(material)+''';
+            c44 = c44'''+str(material)+''';
+            rho = rho'''+str(material)+''';
+
+            B1 =  B1'''+str(material)+''';
+            B2 =  B2'''+str(material)+''';
+
+            eps_m = (aMgO-aCoFe)/aCoFe;
+            eps_m = 0;
+
+            if (inside) {
+            c11 = c11Pt;
+            c12 = c12Pt;
+            c44 = c44Pt;
+            rho = big;
+            };
+
+            };
+            '''
+
+            #self.bd_code_str +='if ((z == '+str(interfaces[material][1]) + ''') & !z_bd) {
+            #dvxdz = (vx[i]*eps_m)/dz;
+            #dvydz = (vy[i]*eps_m)/dz;
+            #};
+            #'''
+
+            #self.bd_code_vel +='if ((z == '+str(interfaces[material][1]) + ''') & !z_bd) {
+            #dsigmazzdz = (c11CoFe*eps_zz[u]+c12CoFe*(2*eps_m+(eps_m+1)*(eps_xx[i]+eps_yy[i]))-sigma_zz[i])/dz;
+            #};
+            #'''
+
+            if material == 'CoFe':
+
+                self.mag_consts += '''
+
+                float K1 = K1'''+str(material)+''';
+                float Ks = Ks'''+str(material)+''';
+                float Ms = Ms'''+str(material)+''';
+                float A =  A''' +str(material)+''';
+                float B1 = B1'''+str(material)+''';
+                float B2 = B2'''+str(material)+''';
+                float D0 = D0'''+str(material)+''';
+                '''
+
+    def init_el_BC(self, R_BD, L_BD, B_BD, F_BD, U_BD, D_BD):
+
+        self.R_BD = R_BD
+        self.L_BD = L_BD
+        self.B_BD = B_BD
+        self.F_BD = F_BD
+        self.U_BD = U_BD
+        self.D_BD = D_BD
+
+        self.X_BD = None
+        self.Y_BD = None
+        self.Z_BD = None
+
+        if R_BD == 'Free' and L_BD == 'Free':
+            self.X_BD = 'Free'
+        if B_BD == 'Free' and F_BD == 'Free':
+            self.Y_BD = 'Free'
+        if U_BD == 'Free' and D_BD == 'Free':
+            self.Z_BD = 'Free'
+
+        # upper bound managment
+
+
+        if self.U_BD == 'Free':
+
+            self.bd_code_str += '''
+            if (up_bd & (lz>1)) {
+            dvzdz = -c12/c11*(dvxdx+dvydy);
+            dvxdz = -dvzdx;
+            dvydz = -dvzdy;
+
+            sigmazz_bd = 0;
+            sigmaxz_bd = 0;
+            sigmayz_bd = 0;
+            };
+            '''
+
+        elif self.U_BD == 'Free2':
+
+            self.bd_code_vel += '''
+            if (up_bd & (lz>1)) {
+            dsigmazzdz = -sigma_zz[i]/dz;
+            };
+            '''
+
+            self.bd_code_str += '''
+            if (up_bd & (lz>1)) {
+            dvxdz = -dvzdx;
+            dvydz = -dvzdy;
+            };
+            '''
+
+        elif self.U_BD == 'z_stressed':
+
+            self.bd_code_vel += '''
+            if (up_bd & (lz>1)) {
+            vz_bd = 0;
+            };
+            '''
+            self.bd_code_str += '''
+            if (up_bd & (lz>1)) {
+            dvzdz = 0;
+            dvxdz = -dvzdx;
+            dvydz = -dvzdy;
+
+            sigmazz_bd = 1e7;
+            sigmaxz_bd = 0;
+            sigmayz_bd = 0;
+            };
+            '''
+        elif self.U_BD == 'Absobtion':
+
+            self.bd_code_vel += '''
+            if (up_bd || z == lz-2 || z == lz-3 || z == lz-4 || z == lz-5) {
+            Alpha = 1e23;
+            };
+            '''
+
+        elif self.U_BD == 'Free_ab':
+
+            self.bd_code_str += '''
+            if (up_bd & (lz>1)) {
+            dvzdz = -c12/c11*(dvxdx+dvydy);
+            dvxdz = -dvzdx;
+            dvydz = -dvzdy;
+
+            sigmazz_bd = 0;
+            sigmaxz_bd = 0;
+            sigmayz_bd = 0;
+
+            Alpha = 1e23;
+            };
+            '''
+        elif self.U_BD == 'Open':
+
+            self.bd_code_vel += '''
+            if (up_bd & (lz>1)) {
+            dsigmazzdz = -sqrt(c11*rho)*(vz[i]-vz[d])/dz;
+            };
+            '''
+
+            self.bd_code_str += '''
+            if (up_bd & (lz>1)) {
+            dvydz = -(sigma_yz[i]-sigma_yz[d])/dz/sqrt(c44*rho);
+            dvxdz = -(sigma_xz[i]-sigma_xz[d])/dz/sqrt(c44*rho);
+            };
+            '''
+
+
+        # lower bound managment
+
+        if self.D_BD == 'Free':
+
+            self.bd_code_str += '''
+            if (down_bd) {
+            dvzdz = -c12/c11*(dvxdx+dvydy);
+            dvxdz = -dvzdx;
+            dvydz = -dvzdy;
+
+            sigmazz_bd = 0;
+            sigmaxz_bd = 0;
+            sigmayz_bd = 0;
+            };
+            '''
+
+        elif self.D_BD == 'Free2':
+
+            self.bd_code_str += '''
+            if (down_bd) {
+            dvzdz = -c12/c11*(dvxdx+dvydy);
+            };
+            '''
+
+            self.bd_code_vel += '''
+            if (down_bd) {
+            dsigmaxzdz = sigma_xz[i]/dz;
+            dsigmayzdz = sigma_yz[i]/dz;
+            };
+            '''
+
+        elif self.D_BD == 'z_stressed':
+
+            self.bd_code_vel += '''
+            if (down_bd & (lz>1)) {
+            vz_bd = 0;
+            };
+            '''
+            self.bd_code_str += '''
+            if (down_bd & (lz>1)) {
+            dvzdz = -c12/c11*(dvxdx+dvydy);
+            dvxdz = -dvzdx;
+            dvydz = -dvzdy;
+
+            sigmazz_bd = 1e7;
+            sigmaxz_bd = 0;
+            sigmayz_bd = 0;
+            };
+            '''
+
+
+        elif self.D_BD == 'PZN-PT':
+
+            self.bd_code_str += '''
+
+            if (down_bd) {
+            sigmaxx_bd = 0.01*c11-0.01*c12;
+            sigmayy_bd = -0.01*c11+0.01*c12;
+            sigmazz_bd = 0;
+            sigmaxy_bd = 0;
+            sigmayz_bd = 0;
+            sigmaxz_bd = 0;
+            };
+            '''
+
+        elif self.D_BD == 'Andreys substrate':
+
+            self.bd_code_str += '''
+            if (down_bd & (lz>1)) {
+            dvxdz = vx[i]*(eps_m/(1-eps_m))/dz;
+            dvydz = vy[i]*(eps_m/(1-eps_m))/dz;
+
+            sigmaxx_bd = c11 * 0.01 + c12 * 0.01;
+            sigmayy_bd = sigmaxx_bd;
+            sigmazz_bd = c12 * 0.02;
+            sigmaxy_bd = 0;
+            sigmayz_bd = 0;
+            sigmaxz_bd = 0;
+            };
+            '''
+
+        elif self.D_BD == 'Fixed':
+
+            self.bd_code_vel += '''
+            if (down_bd & (lz>1)) {
+            vx_bd = 0;
+            vy_bd = 0;
+            vz_bd = 0;
+            };
+            '''
+            self.bd_code_str += '''
+            if (down_bd & (lz>1)) {
+
+            sigmaxx_bd = 0;
+            sigmayy_bd = 0;
+            sigmazz_bd = 0;
+            sigmaxy_bd = 0;
+            sigmayz_bd = 0;
+            sigmaxz_bd = 0;
+            };
+            '''
+        elif len(self.D_BD) == 3:
+
+            self.bd_code_vel += '''
+
+            if (down_bd) {
+
+            if (x==lx-2) {
+            fx = (c11*'''+str(self.D_BD[0])+'''+c12*('''+str(self.D_BD[1])+'''+'''+str(self.D_BD[2])+'''))/dx;
+            };
+            if (x==1) {
+            fx = -(c11*'''+str(self.D_BD[0])+'''+c12*('''+str(self.D_BD[1])+'''+'''+str(self.D_BD[2])+'''))/dx;
+            };
+            if (y==ly-2) {
+            fy = (c11*'''+str(self.D_BD[1])+'''+c12*('''+str(self.D_BD[0])+'''+'''+str(self.D_BD[2])+'''))/dy;
+            };
+            if (y==1) {
+            fy = -(c11*'''+str(self.D_BD[1])+'''+c12*('''+str(self.D_BD[0])+'''+'''+str(self.D_BD[2])+'''))/dy;
+            };
+
+            };
+
+
+            '''
+
+        elif self.D_BD == 'Emmiter':
+
+            self.bd_code_str += '''
+
+            if (down_bd) {
+
+            sigmaxx_bd = 0.01*c12*sin(time_val*2*3.1415*dt*1e10);
+            sigmayy_bd = 0.01*c12*sin(time_val*2*3.1415*dt*1e10);
+            sigmazz_bd = 0.01*c11*sin(time_val*2*3.1415*dt*1e10);
+            sigmaxy_bd = 0;
+            sigmayz_bd = 0;
+            sigmaxz_bd = 0;
+
+            };
+
+
+            '''
+
+        elif self.D_BD == 'Emmiter2.0':
+
+            self.bd_code_vel += '''
+
+            if (down_bd) {
+
+            fz = -(c11*0.01*sin(time_val*2*3.1415*dt*1e8))/dz;
+
+            if (x==lx-2) {
+            fx = (c12*0.01*sin(time_val*2*3.1415*dt*1e8))/dx;
+            };
+            if (x==0) {
+            fx = -(c12*0.01*sin(time_val*2*3.1415*dt*1e8))/dx;
+            };
+            if (y==ly-2) {
+            fy = (c12*0.01*sin(time_val*2*3.1415*dt*1e8))/dy;
+            };
+            if (y==0) {
+            fy = -(c12*0.01*sin(time_val*2*3.1415*dt*1e8))/dy;
+            };
+
+            };
+
+
+            '''
+        elif self.D_BD == 'Impulse':
+
+            self.bd_code_str += '''
+
+            if (down_bd) {
+
+            const float imp_len = 0.1e-9;
+            const int A = time_val*dt/imp_len;
+
+            if (time_val*dt < imp_len) {
+
+            sigmaxx_bd = 0.01*c12*sin(time_val*2*3.1415*dt*1e10);
+            sigmayy_bd = 0.01*c12*sin(time_val*2*3.1415*dt*1e10);
+            sigmazz_bd = 0.01*c11*sin(time_val*2*3.1415*dt*1e10);
+            sigmaxy_bd = 0;
+            sigmayz_bd = 0;
+            sigmaxz_bd = 0;
+            }
+            else {
+
+            sigmaxx_bd = 0;
+            sigmayy_bd = 0;
+            sigmazz_bd = 0;
+            sigmaxy_bd = 0;
+            sigmayz_bd = 0;
+            sigmaxz_bd = 0;
+
+            }
+
+            };
+
+
+            '''
+
+        elif self.D_BD == 'Source':
+
+            self.bd_code_str += '''
+
+            float source_xx = 0;
+            float source_yy = 0;
+            float source_zz = 0;
+            float source_xy = 0;
+            float source_yz = 0;
+            float source_xz = 0;
+
+            if (down_bd) {
+            source_xx = 0.1*c11;
+            source_yy = 0.1*c12;
+            source_zz = 0.1*c12;
+            source_xy = 0;
+            source_yz = 0;
+            source_xz = 0;
+            };
+
+
+            '''
+
+        # right bound managment
+
+        if self.R_BD == 'Free':
+
+            self.bd_code_str += '''
+            if (right_bd) {
+            dvxdx = -c12/c11*(dvydy+dvzdz);
+            dvydx = -dvxdy;
+            dvzdx = -dvxdz;
+
+            sigmaxx_bd = 0;
+            sigmaxy_bd = 0;
+            sigmaxz_bd = 0;
+            };
+            '''
+
+        elif self.R_BD == 'Free2':
+
+            self.bd_code_vel += '''
+            if (right_bd & (lx>1)) {
+            dsigmaxxdx = -sigma_xx[i]/dx;
+            };
+            '''
+
+            self.bd_code_str += '''
+            if (right_bd & (lx>1)) {
+            dvydx = -dvxdy;
+            dvzdx = -dvxdz;
+            };
+            '''
+
+        elif self.R_BD == 'Open':
+
+            self.bd_code_vel += '''
+            if (right_bd & (lx>1)) {
+            dsigmaxxdx = -sqrt(c11*rho)*(vx[i]-vx[l])/dx;
+            };
+            '''
+
+            self.bd_code_str += '''
+            if (right_bd & (lx>1)) {
+            dvydx = -(sigma_xy[i]-sigma_xy[l])/dx/sqrt(c44*rho);
+            dvzdx = -(sigma_xz[i]-sigma_xz[l])/dx/sqrt(c44*rho);
+            };
+            '''
+
+        # left bound managment
+
+        if self.L_BD == 'Free':
+
+            self.bd_code_str += '''
+            if (left_bd) {
+            dvxdx = -c12/c11*(dvydy+dvzdz);
+            dvydx = -dvxdy;
+            dvzdx = -dvxdz;
+
+            sigmaxx_bd = 0;
+            sigmaxy_bd = 0;
+            sigmaxz_bd = 0;
+            };
+            '''
+
+        elif self.L_BD == 'Free2':
+
+
+
+            self.bd_code_vel += '''
+            if (left_bd & (lx>1)) {
+            dsigmaxzdx = sigma_xz[i]/dx;
+            dsigmaxydx = sigma_xy[i]/dx;
+            };
+            '''
+
+            self.bd_code_str += '''
+            if (left_bd & (lx>1)) {
+            dvxdx = -c12/c11*(dvzdz+dvydy);
+            };
+            '''
+
+        elif self.L_BD == 'Emmiter':
+
+            self.bd_code_str += '''
+
+            if (left_bd & (x != LDx)) {
+            sigmaxx_bd = 0.01*c11*sin(time_val*2*3.1415*dt*1e10);
+            sigmayy_bd = 0.01*c12*sin(time_val*2*3.1415*dt*1e10);
+            sigmazz_bd = 0.01*c12*sin(time_val*2*3.1415*dt*1e10);
+            sigmaxy_bd = 0;
+            sigmayz_bd = 0;
+            sigmaxz_bd = 0;
+            };
+            '''
+        elif self.L_BD == 'Open':
+
+            self.bd_code_vel += '''
+            if (left_bd & (lx>1)) {
+            dsigmaxydx = sqrt(c11*rho)*(vy[r]-vy[i])/dx;
+            dsigmaxzdx = sqrt(c11*rho)*(vz[r]-vz[i])/dx;
+            };
+            '''
+
+            self.bd_code_str += '''
+            if (left_bd & (lx>1)) {
+            dvxdx = (sigma_xx[r]-sigma_xx[i])/dx/sqrt(c44*rho);
+            };
+            '''
+
+        # back bound managment
+
+        if self.B_BD == 'Free':
+
+            self.bd_code_str += '''
+            if (back_bd) {
+            dvydy = -c12/c11*(dvxdx+dvzdz);
+            dvxdy = -dvydx;
+            dvzdy = -dvydz;
+
+            sigmayy_bd = 0;
+            sigmaxy_bd = 0;
+            sigmayz_bd = 0;
+            };
+            '''
+
+        elif self.B_BD == 'Free2':
+
+            self.bd_code_vel += '''
+            if (back_bd & (ly>1)) {
+            dsigmayydy = -sigma_yy[i]/dy;
+            };
+            '''
+
+            self.bd_code_str += '''
+            if (back_bd & (ly>1)) {
+            dvxdy = -dvydx;
+            dvzdy = -dvydz;
+            };
+            '''
+
+        elif self.B_BD == 'Open':
+
+            self.bd_code_vel += '''
+            if (back_bd & (ly>1)) {
+            dsigmayydy = -sqrt(c11*rho)*(vy[i]-vy[f])/dy;
+            };
+            '''
+
+            self.bd_code_str += '''
+            if (back_bd & (ly>1)) {
+            dvxdy = -(sigma_xy[i]-sigma_xy[f])/dy/sqrt(c44*rho);
+            dvzdy = -(sigma_yz[i]-sigma_yz[f])/dy/sqrt(c44*rho);
+            };
+            '''
+
+        # front bound managment
+
+        if self.F_BD == 'Free':
+
+            self.bd_code_str += '''
+            if (front_bd) {
+            dvydy = -c12/c11*(dvxdx+dvzdz);
+            dvxdy = -dvydx;
+            dvzdy = -dvydz;
+
+            sigmayy_bd = 0;
+            sigmaxy_bd = 0;
+            sigmayz_bd = 0;
+            };
+            '''
+
+        elif self.F_BD == 'Free2':
+
+            self.bd_code_str += '''
+            if (front_bd & (ly>1)) {
+            dvydy = -c12/c11*(dvzdz+dvxdx);
+            };
+            '''
+
+            self.bd_code_vel += '''
+            if (front_bd & (ly>1)) {
+            dsigmayzdy = sigma_yz[i]/dy;
+            dsigmaxydy = sigma_xy[i]/dy;
+            };
+            '''
+
+        elif self.F_BD == 'Open':
+
+            self.bd_code_str += '''
+            if (front_bd & (ly>1)) {
+            dvydy = (sigma_yy[b]-sigma_yy[i])/dx/sqrt(c44*rho);
+            };
+            '''
+
+            self.bd_code_vel += '''
+            if (front_bd & (ly>1)) {
+            dsigmaxydy = sqrt(c11*rho)*(vx[b]-vx[i])/dy;
+            dsigmayzdy = sqrt(c11*rho)*(vz[b]-vz[i])/dy;
+            };
+            '''
+
+
+
+        if self.F_BD == 'Free2' and self.R_BD == 'Free2':
+
+            self.bd_code_str += '''
+            if (front_bd & right_bd & (lx>1) & (ly>1)) {
+            dvydy = -c12/(c11+c12)*(dvzdz);
+            dvydx = 0;
+            dvzdx = 0;
+            };
+            '''
+
+            self.bd_code_vel += '''
+            if (front_bd & right_bd) {
+            dsigmayzdy = sigma_yz[i]/dy;
+            dsigmaxydy = sigma_xy[i]/dy;
+            dsigmaxxdx = -sigma_xx[i]/dx;
+            };
+            '''
+
+        if self.F_BD == 'Free2' and self.L_BD == 'Free2':
+
+            self.bd_code_str += '''
+            if (front_bd & left_bd & (lx>1) & (ly>1)) {
+            dvydy = -c12/(c11+c12)*(dvzdz);
+            dvxdx = -c12/(c11+c12)*(dvzdz);
+            };
+            '''
+
+            self.bd_code_vel += '''
+            if (front_bd & left_bd & (lx>1) & (ly>1)) {
+            dsigmayzdy = sigma_yz[i]/dy;
+            dsigmaxydy = sigma_xy[i]/dy;
+            dsigmaxzdx = sigma_xz[i]/dx;
+            dsigmaxydx = sigma_xy[i]/dx;
+            };
+            '''
+
+        if self.B_BD == 'Free2' and self.L_BD == 'Free2':
+
+            self.bd_code_str += '''
+            if (back_bd & left_bd & (lx>1) & (ly>1)) {
+            dvxdx = -c12/(c11+c12)*(dvzdz);
+            dvxdy = 0;
+            dvzdy = 0;
+            };
+            '''
+
+            self.bd_code_vel += '''
+            if (back_bd & left_bd) {
+            dsigmaxzdx = sigma_xz[i]/dx;
+            dsigmaxydx = sigma_xy[i]/dx;
+            dsigmayydy = -sigma_yy[i]/dy;
+            };
+            '''
+
+
+        if self.X_BD == 'Free' and self.Y_BD == 'Free':
+            self.bd_code_str += '''
+            if (x_bd & y_bd) {
+            dvxdx = -c12/(c11+c12)*(dvzdz);
+            dvydy = -c12/(c11+c12)*(dvzdz);
+            dvydx = 0;
+            dvzdx = 0;
+            dvxdy = 0;
+            dvzdy = 0;
+
+            sigmaxx_bd = 0;
+            sigmaxy_bd = 0;
+            sigmaxz_bd = 0;
+            sigmayy_bd = 0;
+            sigmayz_bd = 0;
+
+            };
+            '''
+
+        elif self.R_BD == 'Free' and self.Y_BD == 'Free':
+            self.bd_code_str += '''
+            if ('right_bd & y_bd') {
+            dvxdx = -c12/(c11+c12)*(dvzdz);
+            dvydy = -c12/(c11+c12)*(dvzdz);
+            dvydx = 0;
+            dvzdx = 0;
+            dvxdy = 0;
+            dvzdy = 0;
+
+            sigmaxx_bd = 0;
+            sigmaxy_bd = 0;
+            sigmaxz_bd = 0;
+            sigmayy_bd = 0;
+            sigmayz_bd = 0;
+
+            };
+            '''
+
+
+        if self.X_BD == 'Free' and self.U_BD == 'Free':
+            self.bd_code_str += '''
+
+            if (x_bd & up_bd & (lz > 1)) {
+            dvxdx = -c12/(c11+c12)*(dvydy);
+            dvzdz = -c12/(c11+c12)*(dvydy);
+            dvydx = 0;
+            dvzdx = 0;
+            dvxdz = 0;
+            dvydz = 0;
+
+            sigmaxx_bd = 0;
+            sigmaxy_bd = 0;
+            sigmaxz_bd = 0;
+            sigmazz_bd = 0;
+            sigmayz_bd = 0;
+            };
+            '''
+
+        elif self.R_BD == 'Free' and self.U_BD == 'Free':
+            self.bd_code_str += '''
+
+            if (right_bd & up_bd & (lz > 1)) {
+            dvxdx = -c12/(c11+c12)*(dvydy);
+            dvzdz = -c12/(c11+c12)*(dvydy);
+            dvydx = 0;
+            dvzdx = 0;
+            dvxdz = 0;
+            dvydz = 0;
+
+            sigmaxx_bd = 0;
+            sigmaxy_bd = 0;
+            sigmaxz_bd = 0;
+            sigmazz_bd = 0;
+            sigmayz_bd = 0;
+            };
+            '''
+
+        if self.Y_BD == 'Free' and self.U_BD == 'Free':
+            self.bd_code_str += '''
+
+            if (y_bd & up_bd & (lz > 1)) {
+            dvydy = -c12/(c11+c12)*(dvxdx);
+            dvzdz = -c12/(c11+c12)*(dvxdx);
+            dvxdy = 0;
+            dvzdy = 0;
+            dvxdz = 0;
+            dvydz = 0;
+
+            sigmayy_bd = 0;
+            sigmaxy_bd = 0;
+            sigmayz_bd = 0;
+            sigmazz_bd = 0;
+            sigmaxz_bd = 0;
+            };
+            '''
+
+        if self.X_BD == 'Free' and self.Y_BD == 'Free' and self.U_BD == 'Free':
+            self.bd_code_str += '''
+            if (x_bd & y_bd & up_bd) {
+            dvxdx = 0;
+            dvydy = 0;
+            dvzdz = 0;
+
+            dvxdy = 0;
+            dvzdy = 0;
+            dvxdz = 0;
+            dvydz = 0;
+            dvzdx = 0;
+            dvydx = 0;
+
+            sigmaxx_bd = 0;
+            sigmayy_bd = 0;
+            sigmazz_bd = 0;
+            sigmaxy_bd = 0;
+            sigmayz_bd = 0;
+            sigmaxz_bd = 0;
+            };
+            '''
+        elif self.R_BD == 'Free' and self.Y_BD == 'Free' and self.U_BD == 'Free':
+            self.bd_code_str += '''
+            if (right_bd & y_bd & up_bd) {
+            dvxdx = 0;
+            dvydy = 0;
+            dvzdz = 0;
+
+            dvxdy = 0;
+            dvzdy = 0;
+            dvxdz = 0;
+            dvydz = 0;
+            dvzdx = 0;
+            dvydx = 0;
+
+            sigmaxx_bd = 0;
+            sigmayy_bd = 0;
+            sigmazz_bd = 0;
+            sigmaxy_bd = 0;
+            sigmayz_bd = 0;
+            sigmaxz_bd = 0;
+            };
+            '''
+
+    # get data from gpu
+
+    def get_vs(self):
+
+        cl.enqueue_copy(self.queue, self.vx, self.vx_buf)
+        cl.enqueue_copy(self.queue, self.vy, self.vy_buf)
+        cl.enqueue_copy(self.queue, self.vz, self.vz_buf)
+    def get_strains(self):
+
+        cl.enqueue_copy(self.queue, self.sigmaxx, self.sigmaxx_buf)
+        cl.enqueue_copy(self.queue, self.sigmayy, self.sigmayy_buf)
+        cl.enqueue_copy(self.queue, self.sigmazz, self.sigmazz_buf)
+        cl.enqueue_copy(self.queue, self.sigmaxy, self.sigmaxy_buf)
+        cl.enqueue_copy(self.queue, self.sigmayz, self.sigmayz_buf)
+        cl.enqueue_copy(self.queue, self.sigmaxz, self.sigmaxz_buf)
+    def get_eps(self):
+
+        cl.enqueue_copy(self.queue, self.eps_xx, self.eps_xx_buf)
+        cl.enqueue_copy(self.queue, self.eps_yy, self.eps_yy_buf)
+        cl.enqueue_copy(self.queue, self.eps_zz, self.eps_zz_buf)
+        cl.enqueue_copy(self.queue, self.eps_xy, self.eps_xy_buf)
+        cl.enqueue_copy(self.queue, self.eps_yz, self.eps_yz_buf)
+        cl.enqueue_copy(self.queue, self.eps_xz, self.eps_xz_buf)
+
+    # a better def of eps thru MEC  !
+    # A great and terrible integrator lies here
     def compile(self):
 
-        # OpenCL elastic
+        # OpenCL code of elastic and LLG integrators
 
-        self.code_el = '''
+        self.code = '''
 
         __kernel void update_velocity(
         __global float *time_val_arr,
         __global float *vx,       __global float *vy,       __global float *vz,
-        __global float *mx,       __global float *my,       __global float *mz,
         __global float *sigma_xx, __global float *sigma_yy, __global float *sigma_zz,
-        __global float *sigma_xy, __global float *sigma_yz, __global float *sigma_xz,
-        __global float *eps_xx,   __global float *eps_yy,   __global float *eps_zz)
+        __global float *sigma_xy, __global float *sigma_yz, __global float *sigma_xz)
 
         {   int i = get_global_id(0);
 
 
 
-            ''' + self.coord_syst + '''
+            ''' + self.coord_syst_el + '''
 
             float dsigmaxxdx = (sigma_xx[r]-sigma_xx[i])/dx;
             float dsigmayydy = (sigma_yy[b]-sigma_yy[i])/dy;
@@ -741,11 +1233,9 @@ class elasto:
 
             ''' + self.bd_code_vel + '''
 
-            ''' + self.mgstr_code + '''
-
-            float new_vx = vx[i] + (dsigmaxxdx + dsigmaxydy + dsigmaxzdz - Alpha * vx[i] + MEx + fx)*dt/rho;
-            float new_vy = vy[i] + (dsigmaxydx + dsigmayydy + dsigmayzdz - Alpha * vy[i] + MEy + fy)*dt/rho;
-            float new_vz = vz[i] + (dsigmaxzdx + dsigmayzdy + dsigmazzdz - Alpha * vz[i] + MEz + fz)*dt/rho;
+            float new_vx = vx[i] + (dsigmaxxdx + dsigmaxydy + dsigmaxzdz - Alpha * vx[i] + fx)*dt/rho;
+            float new_vy = vy[i] + (dsigmaxydx + dsigmayydy + dsigmayzdz - Alpha * vy[i] + fy)*dt/rho;
+            float new_vz = vz[i] + (dsigmaxzdx + dsigmayzdy + dsigmazzdz - Alpha * vz[i] + fz)*dt/rho;
 
             if (!isnan(vx_bd)) {new_vx = vx_bd;}
             if (!isnan(vy_bd)) {new_vy = vy_bd;}
@@ -756,6 +1246,8 @@ class elasto:
             vx[i] = new_vx;
             vy[i] = new_vy;
             vz[i] = new_vz;
+
+
         };
 
 
@@ -769,7 +1261,7 @@ class elasto:
 
         {   int i = get_global_id(0);
 
-            ''' + self.coord_syst + '''
+            ''' + self.coord_syst_el + '''
 
             float dvxdx = (vx[i]-vx[l])/dx;
             float dvydy = (vy[i]-vy[f])/dy;
@@ -810,6 +1302,20 @@ class elasto:
 
             barrier(CLK_GLOBAL_MEM_FENCE);
 
+            float epsxx = ((c11 + c12)*sigma_xx[i]-c12*(sigma_zz[i] + sigma_yy[i]))/((c11 - c12)*(c11 + 2*c12));
+            float epsyy = ((c11 + c12)*sigma_yy[i]-c12*(sigma_xx[i] + sigma_zz[i]))/((c11 - c12)*(c11 + 2*c12));
+            float epszz = ((c11 + c12)*sigma_zz[i]-c12*(sigma_xx[i] + sigma_yy[i]))/((c11 - c12)*(c11 + 2*c12));
+            float epsxy = sigma_xy[i]/2/c44;
+            float epsyz = sigma_yz[i]/2/c44;
+            float epsxz = sigma_xz[i]/2/c44;
+
+            eps_xx[i] = epsxx;
+            eps_yy[i] = epsyy;
+            eps_zz[i] = epszz;
+            eps_xy[i] = epsxy;
+            eps_yz[i] = epsyz;
+            eps_xz[i] = epsxz;
+
             sigma_xx[i] = new_sigmaxx;
             sigma_yy[i] = new_sigmayy;
             sigma_zz[i] = new_sigmazz;
@@ -817,34 +1323,14 @@ class elasto:
             sigma_yz[i] = new_sigmayz;
             sigma_xz[i] = new_sigmaxz;
 
-            float epsxx = ((c11 + c12)*sigma_xx[i]-c12*(sigma_zz[i] + sigma_yy[i]))/((c11 - c12)*(c11 + 2*c12));
-            float epsyy = ((c11 + c12)*sigma_yy[i]-c12*(sigma_xx[i] + sigma_zz[i]))/((c11 - c12)*(c11 + 2*c12));
-            float epszz = ((c11 + c12)*sigma_zz[i]-c12*(sigma_xx[i] + sigma_yy[i]))/((c11 - c12)*(c11 + 2*c12));
 
-            eps_xx[i] = epsxx;
-            eps_yy[i] = epsyy;
-            eps_zz[i] = epszz;
-            eps_xy[i] = 0;
-            eps_yz[i] = 0;
-            eps_xz[i] = 0;
         };
         '''
-        # build the Kernel
 
-        self.prog = cl.Program(self.ctx, self.code_el).build()
+        # build the Kernel
+        self.prog = cl.Program(self.ctx, self.code).build()
 
     def dynamics(self):
-
-
-        launch = self.prog.update_velocity(self.queue, self.vx.shape, None,
-        self.time_val_buf,
-        self.vx_buf,      self.vy_buf,      self.vz_buf,
-        self.mx_buf,      self.my_buf,      self.mz_buf,
-        self.sigmaxx_buf, self.sigmayy_buf, self.sigmazz_buf,
-        self.sigmaxy_buf, self.sigmayz_buf, self.sigmaxz_buf,
-        self.eps_xx_buf,  self.eps_yy_buf,  self.eps_zz_buf)
-        launch.wait()
-
 
         launch = self.prog.update_strains(self.queue, self.vx.shape, None,
         self.time_val_buf,
@@ -854,6 +1340,64 @@ class elasto:
         self.eps_xx_buf,  self.eps_yy_buf,  self.eps_zz_buf,
         self.eps_xy_buf,  self.eps_yz_buf,  self.eps_xz_buf)
         launch.wait()
+
+
+
+        launch = self.prog.update_velocity(self.queue, self.vx.shape, None,
+        self.time_val_buf,
+        self.vx_buf,      self.vy_buf,      self.vz_buf,
+        self.sigmaxx_buf, self.sigmayy_buf, self.sigmazz_buf,
+        self.sigmaxy_buf, self.sigmayz_buf, self.sigmaxz_buf)
+        launch.wait()
+
+
+    def save_eps(self, dir, count):
+        self.get_eps()
+        self.eps_xx.astype('float32').tofile(dir + '/TXT/' + str(count) +'eps_xx.dat')
+        self.eps_yy.astype('float32').tofile(dir + '/TXT/' + str(count) +'eps_yy.dat')
+        self.eps_zz.astype('float32').tofile(dir + '/TXT/' + str(count) +'eps_zz.dat')
+        self.eps_xy.astype('float32').tofile(dir + '/TXT/' + str(count) +'eps_xy.dat')
+        self.eps_yz.astype('float32').tofile(dir + '/TXT/' + str(count) +'eps_yz.dat')
+        self.eps_xz.astype('float32').tofile(dir + '/TXT/' + str(count) +'eps_xz.dat')
+    def save_state(self, filename):
+
+        self.get_vs()
+        self.get_strains()
+
+        np.save(filename + "_vx_.npy", self.vx)
+        np.save(filename + "_vy_.npy", self.vy)
+        np.save(filename + "_vz_.npy", self.vz)
+
+        np.save(filename + "_sigmaxx_.npy", self.sigmaxx)
+        np.save(filename + "_sigmayy_.npy", self.sigmayy)
+        np.save(filename + "_sigmazz_.npy", self.sigmazz)
+        np.save(filename + "_sigmaxy_.npy", self.sigmaxy)
+        np.save(filename + "_sigmayz_.npy", self.sigmayz)
+        np.save(filename + "_sigmaxz_.npy", self.sigmaxz)
+
+    def load_state(self, filename):
+
+        self.vx = np.load(filename + "_vx_.npy")
+        self.vy = np.load(filename + "_vy_.npy")
+        self.vz = np.load(filename + "_vz_.npy")
+
+        self.sigmaxx = np.load(filename + "_sigmaxx_.npy")
+        self.sigmayy = np.load(filename + "_sigmayy_.npy")
+        self.sigmazz = np.load(filename + "_sigmazz_.npy")
+        self.sigmaxy = np.load(filename + "_sigmaxy_.npy")
+        self.sigmayz = np.load(filename + "_sigmayz_.npy")
+        self.sigmaxz = np.load(filename + "_sigmaxz_.npy")
+
+        self.vx_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE | cl.mem_flags.COPY_HOST_PTR, hostbuf=self.vx)
+        self.vy_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE | cl.mem_flags.COPY_HOST_PTR, hostbuf=self.vy)
+        self.vz_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE | cl.mem_flags.COPY_HOST_PTR, hostbuf=self.vz)
+
+        self.sigmaxx_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE | cl.mem_flags.COPY_HOST_PTR, hostbuf=self.sigmaxx)
+        self.sigmayy_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE | cl.mem_flags.COPY_HOST_PTR, hostbuf=self.sigmayy)
+        self.sigmazz_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE | cl.mem_flags.COPY_HOST_PTR, hostbuf=self.sigmazz)
+        self.sigmaxy_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE | cl.mem_flags.COPY_HOST_PTR, hostbuf=self.sigmaxy)
+        self.sigmayz_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE | cl.mem_flags.COPY_HOST_PTR, hostbuf=self.sigmayz)
+        self.sigmaxz_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE | cl.mem_flags.COPY_HOST_PTR, hostbuf=self.sigmaxz)
 
 
     def plot_xy_pl(self, stringer, layer, file_name):
@@ -890,7 +1434,6 @@ class elasto:
         fig.set_size_inches(15, 15)
         plt.savefig(file_name, dpi=100)
         plt.close()
-
     def plot_1D_xy(self, file_name, point, layer):
 
         self.get_eps()
@@ -961,23 +1504,6 @@ class elasto:
 
         plt.savefig(file_name + "x.png", dpi=100)
         plt.close()
-
-    def get_vs(self):
-
-        cl.enqueue_copy(self.queue, self.vx, self.vx_buf)
-        cl.enqueue_copy(self.queue, self.vy, self.vy_buf)
-        cl.enqueue_copy(self.queue, self.vz, self.vz_buf)
-
-    def get_eps(self):
-
-        cl.enqueue_copy(self.queue, self.eps_xx, self.eps_xx_buf)
-        cl.enqueue_copy(self.queue, self.eps_yy, self.eps_yy_buf)
-        cl.enqueue_copy(self.queue, self.eps_zz, self.eps_zz_buf)
-        cl.enqueue_copy(self.queue, self.eps_xy, self.eps_xy_buf)
-        cl.enqueue_copy(self.queue, self.eps_yz, self.eps_yz_buf)
-        cl.enqueue_copy(self.queue, self.eps_xz, self.eps_xz_buf)
-
-
     def plot_1D_z(self, file_name):
 
         self.get_eps()
@@ -1018,18 +1544,3 @@ class elasto:
 
         plt.savefig(file_name, dpi=100)
         plt.close()
-
-    def save_eps(self, dir, count):
-        self.get_eps()
-        self.eps_xx.astype('float32').tofile(dir + '/TXT/' + str(count) +'eps_xx.dat')
-        self.eps_yy.astype('float32').tofile(dir + '/TXT/' + str(count) +'eps_yy.dat')
-        self.eps_zz.astype('float32').tofile(dir + '/TXT/' + str(count) +'eps_zz.dat')
-        self.eps_xy.astype('float32').tofile(dir + '/TXT/' + str(count) +'eps_xy.dat')
-        self.eps_yz.astype('float32').tofile(dir + '/TXT/' + str(count) +'eps_yz.dat')
-        self.eps_xz.astype('float32').tofile(dir + '/TXT/' + str(count) +'eps_xz.dat')
-
-    def save_vs(self, dir, count):
-        self.get_vs()
-        self.vx.astype('float32').tofile(dir + '/TXT/' + str(count) +'vx.dat')
-        self.vy.astype('float32').tofile(dir + '/TXT/' + str(count) +'vy.dat')
-        self.vz.astype('float32').tofile(dir + '/TXT/' + str(count) +'vz.dat')
