@@ -10,7 +10,7 @@ import telebot
 import reikna.cluda as cluda
 from reikna.fft import FFT
 
-class elasto:
+class ME:
 
     def __init__(self):
         platforms = cl.get_platforms()
@@ -500,13 +500,29 @@ class elasto:
             '''
             self.bd_code_str += '''
             if (up_bd & (lz>1)) {
-            dvzdz = 0;
+            //dvzdz = 0;
+            //dvxdz = -dvzdx;
+            //dvydz = -dvzdy;
+
+            sigmazz_bd = 1e7;
+            //sigmaxz_bd = 0;
+            //sigmayz_bd = 0;
+            };
+            '''
+
+        elif self.U_BD == 'z_stressed2':
+
+            self.bd_code_vel += '''
+            if (up_bd) & (lz>1)) {
+            fz = 10e7/dz;
+            };
+            '''
+
+            self.bd_code_str += '''
+            if (up_bd) {
             dvxdz = -dvzdx;
             dvydz = -dvzdy;
 
-            sigmazz_bd = 1e7;
-            sigmaxz_bd = 0;
-            sigmayz_bd = 0;
             };
             '''
         elif self.U_BD == 'Absobtion':
@@ -544,6 +560,22 @@ class elasto:
             if (up_bd & (lz>1)) {
             dvydz = -(sigma_yz[i]-sigma_yz[d])/dz/sqrt(c44*rho);
             dvxdz = -(sigma_xz[i]-sigma_xz[d])/dz/sqrt(c44*rho);
+            };
+            '''
+
+        elif self.U_BD == 'Fixed':
+
+            self.bd_code_vel += '''
+            if (up_bd & (lz>1)) {
+            vz_bd = 0;
+            };
+            '''
+            self.bd_code_str += '''
+            if (up_bd & (lz>1)) {
+
+            dvxdz = -dvzdx;
+            dvydz = -dvzdy;
+
             };
             '''
 
@@ -588,7 +620,7 @@ class elasto:
             '''
             self.bd_code_str += '''
             if (down_bd & (lz>1)) {
-            dvzdz = -c12/c11*(dvxdx+dvydy);
+            dvzdz = 0;
             dvxdz = -dvzdx;
             dvydz = -dvzdy;
 
@@ -597,6 +629,15 @@ class elasto:
             sigmayz_bd = 0;
             };
             '''
+
+        elif self.D_BD == 'z_stressed2':
+
+            self.bd_code_vel += '''
+            if (z==1 & (lz>1)) {
+            fz = -10e7/dz;
+            };
+            '''
+
 
 
         elif self.D_BD == 'PZN-PT':
@@ -633,22 +674,18 @@ class elasto:
 
             self.bd_code_vel += '''
             if (down_bd & (lz>1)) {
-            vx_bd = 0;
-            vy_bd = 0;
             vz_bd = 0;
             };
             '''
             self.bd_code_str += '''
-            if (down_bd & (lz>1)) {
+            if (down_bd) {
 
-            sigmaxx_bd = 0;
-            sigmayy_bd = 0;
-            sigmazz_bd = 0;
-            sigmaxy_bd = 0;
-            sigmayz_bd = 0;
-            sigmaxz_bd = 0;
+            dvxdz = -dvzdx;
+            dvydz = -dvzdy;
+
             };
             '''
+
         elif len(self.D_BD) == 3:
 
             self.bd_code_vel += '''
@@ -1374,6 +1411,7 @@ class elasto:
         np.save(filename + "_sigmaxy_.npy", self.sigmaxy)
         np.save(filename + "_sigmayz_.npy", self.sigmayz)
         np.save(filename + "_sigmaxz_.npy", self.sigmaxz)
+
 
     def load_state(self, filename):
 
