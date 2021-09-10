@@ -203,6 +203,7 @@ class ME:
         const float small = 10e-19;
         const float big = 1/small;
         const float rho_vac = 1;
+        float rhoz = 1;
 
         float sigmaxx_bd =NAN;
         float sigmayy_bd =NAN;
@@ -391,6 +392,9 @@ class ME:
         self.eps_yz_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE | cl.mem_flags.COPY_HOST_PTR, hostbuf=self.eps_yz)
         self.eps_xz_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE | cl.mem_flags.COPY_HOST_PTR, hostbuf=self.eps_xz)
 
+        m = 0
+        K = list(interfaces.keys())
+
         for material in interfaces:
 
             self.coord_syst_el += 'if ((z >= ' + str(interfaces[material][0]) + ') & (z <= ' + str(interfaces[material][1]) + ''')) {
@@ -425,6 +429,14 @@ class ME:
             #dsigmazzdz = (c11CoFe*eps_zz[u]+c12CoFe*(2*eps_m+(eps_m+1)*(eps_xx[i]+eps_yy[i]))-sigma_zz[i])/dz;
             #};
             #'''
+            if m!= len(K):
+                self.bd_code_vel  +='if (z == '+str(interfaces[material][1]) + ''') {
+                rhoz = (rho'''+ K[m] +'''+ rho'''+ K[m+1] + ''')/2;
+                }
+                else {
+                rhoz = rho;
+                }
+                '''
 
             if material == 'CoFe':
 
@@ -438,6 +450,7 @@ class ME:
                 float B2 = B2'''+str(material)+''';
                 float D0 = D0'''+str(material)+''';
                 '''
+        m += 1
 
     def init_el_BC(self, R_BD, L_BD, B_BD, F_BD, U_BD, D_BD):
 
@@ -1272,7 +1285,7 @@ class ME:
 
             float new_vx = vx[i] + (dsigmaxxdx + dsigmaxydy + dsigmaxzdz - Alpha * vx[i] + fx)*dt/rho;
             float new_vy = vy[i] + (dsigmaxydx + dsigmayydy + dsigmayzdz - Alpha * vy[i] + fy)*dt/rho;
-            float new_vz = vz[i] + (dsigmaxzdx + dsigmayzdy + dsigmazzdz - Alpha * vz[i] + fz)*dt/rho;
+            float new_vz = vz[i] + (dsigmaxzdx + dsigmayzdy + dsigmazzdz - Alpha * vz[i] + fz)*dt/rhoz;
 
             if (!isnan(vx_bd)) {new_vx = vx_bd;}
             if (!isnan(vy_bd)) {new_vy = vy_bd;}
