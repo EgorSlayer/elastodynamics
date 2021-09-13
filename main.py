@@ -203,7 +203,7 @@ class ME:
         const float small = 10e-19;
         const float big = 1/small;
         const float rho_vac = 1;
-        float rhoz = 1;
+        float rhoz;
 
         float sigmaxx_bd =NAN;
         float sigmayy_bd =NAN;
@@ -402,6 +402,7 @@ class ME:
             c12 = c12'''+str(material)+''';
             c44 = c44'''+str(material)+''';
             rho = rho'''+str(material)+''';
+            rhoz = rho;
 
             B1 =  B1'''+str(material)+''';
             B2 =  B2'''+str(material)+''';
@@ -429,13 +430,10 @@ class ME:
             #dsigmazzdz = (c11CoFe*eps_zz[u]+c12CoFe*(2*eps_m+(eps_m+1)*(eps_xx[i]+eps_yy[i]))-sigma_zz[i])/dz;
             #};
             #'''
-            if m!= len(K):
+            if m!= len(K)-1:
                 self.bd_code_vel  +='if (z == '+str(interfaces[material][1]) + ''') {
                 rhoz = (rho'''+ K[m] +'''+ rho'''+ K[m+1] + ''')/2;
-                }
-                else {
-                rhoz = rho;
-                }
+                };
                 '''
 
             if material == 'CoFe':
@@ -729,57 +727,30 @@ class ME:
 
             if (down_bd) {
 
-            sigmaxx_bd = 0.01*c12*sin(time_val*2*3.1415*dt*1e10);
-            sigmayy_bd = 0.01*c12*sin(time_val*2*3.1415*dt*1e10);
-            sigmazz_bd = 0.01*c11*sin(time_val*2*3.1415*dt*1e10);
+            sigmaxx_bd = 0.001*c12*sin(time_val*2*3.1415*dt*1e10);
+            sigmayy_bd = 0.001*c12*sin(time_val*2*3.1415*dt*1e10);
+            sigmazz_bd = 0.001*c11*sin(time_val*2*3.1415*dt*1e10);
             sigmaxy_bd = 0;
             sigmayz_bd = 0;
             sigmaxz_bd = 0;
 
             };
-
-
             '''
 
-        elif self.D_BD == 'Emmiter2.0':
-
-            self.bd_code_vel += '''
-
-            if (down_bd) {
-
-            fz = -(c11*0.01*sin(time_val*2*3.1415*dt*1e8))/dz;
-
-            if (x==lx-2) {
-            fx = (c12*0.01*sin(time_val*2*3.1415*dt*1e8))/dx;
-            };
-            if (x==0) {
-            fx = -(c12*0.01*sin(time_val*2*3.1415*dt*1e8))/dx;
-            };
-            if (y==ly-2) {
-            fy = (c12*0.01*sin(time_val*2*3.1415*dt*1e8))/dy;
-            };
-            if (y==0) {
-            fy = -(c12*0.01*sin(time_val*2*3.1415*dt*1e8))/dy;
-            };
-
-            };
-
-
-            '''
         elif self.D_BD == 'Impulse':
 
             self.bd_code_str += '''
 
             if (down_bd) {
 
-            const float imp_len = 0.1e-9;
+            const float imp_len = 1e-11;
             const int A = time_val*dt/imp_len;
 
             if (time_val*dt < imp_len) {
 
-            sigmaxx_bd = 0.01*c12*sin(time_val*2*3.1415*dt*1e10);
-            sigmayy_bd = 0.01*c12*sin(time_val*2*3.1415*dt*1e10);
-            sigmazz_bd = 0.01*c11*sin(time_val*2*3.1415*dt*1e10);
+            sigmaxx_bd = 0.01*c12;
+            sigmayy_bd = 0.01*c12;
+            sigmazz_bd = 0.01*c11;
             sigmaxy_bd = 0;
             sigmayz_bd = 0;
             sigmaxz_bd = 0;
@@ -794,9 +765,25 @@ class ME:
             sigmaxz_bd = 0;
 
             }
-
             };
 
+            '''
+
+            self.bd_code_vel += '''
+
+            if (down_bd) {
+
+            const float imp_len = 0.1e-9;
+            const int A = time_val*dt/imp_len;
+
+            if (time_val*dt >= imp_len) {
+
+            vx_bd = 0;
+            vy_bd = 0;
+            vz_bd = 0;
+
+            };
+            };
 
             '''
 
@@ -1283,9 +1270,9 @@ class ME:
 
             ''' + self.bd_code_vel + '''
 
-            float new_vx = vx[i] + (dsigmaxxdx + dsigmaxydy + dsigmaxzdz - Alpha * vx[i] + fx)*dt/rho;
-            float new_vy = vy[i] + (dsigmaxydx + dsigmayydy + dsigmayzdz - Alpha * vy[i] + fy)*dt/rho;
-            float new_vz = vz[i] + (dsigmaxzdx + dsigmayzdy + dsigmazzdz - Alpha * vz[i] + fz)*dt/rhoz;
+            float new_vx = vx[i] + (dsigmaxxdx + dsigmaxydy + dsigmaxzdz - Alpha * vx[i] + fx)*dt/rho*2;
+            float new_vy = vy[i] + (dsigmaxydx + dsigmayydy + dsigmayzdz - Alpha * vy[i] + fy)*dt/rho*2;
+            float new_vz = vz[i] + (dsigmaxzdx + dsigmayzdy + dsigmazzdz - Alpha * vz[i] + fz)*dt/rhoz*2;
 
             if (!isnan(vx_bd)) {new_vx = vx_bd;}
             if (!isnan(vy_bd)) {new_vy = vy_bd;}
@@ -1336,12 +1323,12 @@ class ME:
             float dsigmayzdt = c44 * (dvzdy+dvydz);
             float dsigmaxzdt = c44 * (dvxdz+dvzdx);
 
-            float new_sigmaxx = sigma_xx[i] + dsigmaxxdt * dt;
-            float new_sigmayy = sigma_yy[i] + dsigmayydt * dt;
-            float new_sigmazz = sigma_zz[i] + dsigmazzdt * dt;
-            float new_sigmaxy = sigma_xy[i] + dsigmaxydt * dt;
-            float new_sigmayz = sigma_yz[i] + dsigmayzdt * dt;
-            float new_sigmaxz = sigma_xz[i] + dsigmaxzdt * dt;
+            float new_sigmaxx = sigma_xx[i] + dsigmaxxdt * dt*2;
+            float new_sigmayy = sigma_yy[i] + dsigmayydt * dt*2;
+            float new_sigmazz = sigma_zz[i] + dsigmazzdt * dt*2;
+            float new_sigmaxy = sigma_xy[i] + dsigmaxydt * dt*2;
+            float new_sigmayz = sigma_yz[i] + dsigmayzdt * dt*2;
+            float new_sigmaxz = sigma_xz[i] + dsigmaxzdt * dt*2;
 
             if (!isnan(sigmaxx_bd)) {new_sigmaxx = sigmaxx_bd;}
             if (!isnan(sigmayy_bd)) {new_sigmayy = sigmayy_bd;}
@@ -1352,9 +1339,16 @@ class ME:
 
             barrier(CLK_GLOBAL_MEM_FENCE);
 
-            float epsxx = ((c11 + c12)*sigma_xx[i]-c12*(sigma_zz[i] + sigma_yy[i]))/((c11 - c12)*(c11 + 2*c12));
-            float epsyy = ((c11 + c12)*sigma_yy[i]-c12*(sigma_xx[i] + sigma_zz[i]))/((c11 - c12)*(c11 + 2*c12));
-            float epszz = ((c11 + c12)*sigma_zz[i]-c12*(sigma_xx[i] + sigma_yy[i]))/((c11 - c12)*(c11 + 2*c12));
+            //float epsxx = ((c11 + c12)*sigma_xx[i]-c12*(sigma_zz[i] + sigma_yy[i]))/((c11 - c12)*(c11 + 2*c12));
+            //float epsyy = ((c11 + c12)*sigma_yy[i]-c12*(sigma_xx[i] + sigma_zz[i]))/((c11 - c12)*(c11 + 2*c12));
+            //float epszz = ((c11 + c12)*sigma_zz[i]-c12*(sigma_xx[i] + sigma_yy[i]))/((c11 - c12)*(c11 + 2*c12));
+            //float epsxy = sigma_xy[i]/2/c44;
+            //float epsyz = sigma_yz[i]/2/c44;
+            //float epsxz = sigma_xz[i]/2/c44;
+
+            float epsxx = vx[i]*dt;
+            float epsyy = vy[i]*dt;
+            float epszz = vz[i]*dt;
             float epsxy = sigma_xy[i]/2/c44;
             float epsyz = sigma_yz[i]/2/c44;
             float epsxz = sigma_xz[i]/2/c44;
