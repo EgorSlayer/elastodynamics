@@ -1,4 +1,4 @@
-from main2 import ME
+from main import ME
 import time as Time
 import numpy as np
 
