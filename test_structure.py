@@ -1,25 +1,25 @@
-from main2 import ME
+from main import ME
 import time as Time
 import numpy as np
 
 
-Lx = 10
-Ly = 10
-Lz = 40
+Lx = 100
+Ly = 100
+Lz = 21
 dx = 3           #nm
 dy = 3           #nm
-dz = 3            #nm
-dt = 10**4       #10^-18
+dz = 0.5            #nm
+dt = 10**3       #10^-18
 directory = "/home/heisenberg/Desktop/НИР/ELASTIC/modeling3D"
 
 
 calc = ME()
-MCP = {'MgO':[0,Lz/2],'CoFe':[Lz/2+1,Lz/2+2],'Pt':  [Lz/2+3,Lz-1]}
+MCP = {'MgO':[0,Lz/3],'CoFe':[Lz/3+1,2*Lz/3],'Pt':  [2*Lz/3+1,Lz-1]}
 CoFe = {'CoFe':[0,Lz-1]}
-calc.init_structure(CoFe,Lx,Ly,Lz,dx,dy,dz,dt,static=True)
+calc.init_structure(MCP,Lx,Ly,Lz,dx,dy,dz,dt,static=True)
 
 time = 2*10**9
-every_print=10**3
+every_print=10**4
 count = 0
 eps = 0.01
 
