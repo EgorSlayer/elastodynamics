@@ -1,14 +1,14 @@
-from main2 import ME
+from main import ME
 import time as Time
 import numpy as np
 
 
-Lx = 20
-Ly = 20
-Lz = 400
-dx = 3           #nm
-dy = 3           #nm
-dz = 3            #nm
+Lx = 10
+Ly = 10
+Lz = 800
+dx = 5           #nm
+dy = 5           #nm
+dz = 5            #nm
 dt = 10**3       #10^-18
 directory = "/home/heisenberg/Desktop/НИР/ELASTIC/modeling3D"
 
@@ -24,12 +24,12 @@ every_print=10**4
 count = 0
 eps = 0.01
 
-calc.init_el_BC(R_BD = 'Free',
-                L_BD = 'Free',
-                B_BD = 'Free',
-                F_BD = 'Free',
+calc.init_el_BC(R_BD = 'Open',
+                L_BD = 'Open',
+                B_BD = 'Open',
+                F_BD = 'Open',
                 U_BD = 'Open',
-                D_BD = 'Emmiter')
+                D_BD = 'Impulse')
 
 calc.compile()
 
